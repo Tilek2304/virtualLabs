@@ -14,7 +14,7 @@ evn/
 *.bak
 *.swo
 
-# Test/coverage files
+# Test/coverage filess
 .coverage
 .pytest_cache/
 htmlcov/
@@ -30,3 +30,8 @@ build/
 # Operating System files
 .DS_Store
 Thumbs.db
+
+# PyInstaller files
+specs/
+build/
+dist/
