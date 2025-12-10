@@ -35,3 +35,6 @@ Thumbs.db
 specs/
 build/
 dist/
+distKG/
+exe_builds/
+LabsExe/
