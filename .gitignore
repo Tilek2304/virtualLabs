@@ -33,8 +33,9 @@ Thumbs.db
 
 # PyInstaller files
 specs/
-build/
+specs_kg/
+build_kg/
 dist/
-distKG/
+dist_kg/
 exe_builds/
 LabsExe/

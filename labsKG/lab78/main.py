@@ -1,4 +1,4 @@
-# lab09_lever_ru.py
+# lab09_lever.py
 # Требуется: pip install PySide6
 import sys
 import math
@@ -61,10 +61,16 @@ class LeverWidget(QFrame):
 
     def _update_balance(self):
         # Расчет моментов сил
-        # Момент = Масса * Плечо (упрощенно для визуализации, g сокращаем)
+        # M = m * g * L
         moment_sum = 0
         for w in self.weights:
-            # w.pos_index: слева (-), справа (+)
+            # L - это w.pos_index. Слева (-), справа (+).
+            # Чтобы момент слева был против часовой (положительный в физике часто, но здесь зависит от оси),
+            # а справа по часовой.
+            # Пусть момент = m * pos.
+            # Если сумма 0 -> равновесие.
+            # Если сумма > 0 -> перевес вправо (угол положительный).
+            # Если сумма < 0 -> перевес влево (угол отрицательный).
             moment_sum += w.mass * w.pos_index
 
         if moment_sum == 0:
@@ -75,7 +81,7 @@ class LeverWidget(QFrame):
             self.target_angle = math.radians(-20) # наклон влево
 
     def animate(self):
-        # Простая анимация поворота с затуханием
+        # Простая анимация поворота
         diff = self.target_angle - self.angle
         if abs(diff) > 0.001:
             self.angle += diff * 0.1
@@ -108,6 +114,7 @@ class LeverWidget(QFrame):
         # 2. Балка рычага
         beam_len = 500
         beam_h = 14
+        step = beam_len // 12 # шаг делений (5 слева, 5 справа + запасы)
         
         painter.setBrush(QColor(220, 180, 120)) # Дерево
         painter.setPen(QPen(Qt.black, 2))
@@ -120,7 +127,7 @@ class LeverWidget(QFrame):
         
         for i in range(-5, 6):
             if i == 0: continue
-            x = i * 40 # шаг 40 пикселей между делениями
+            x = i * 40 # шаг 40 пикселей
             
             # Риска
             painter.drawLine(x, -beam_h//2, x, beam_h//2)
@@ -150,14 +157,14 @@ class LeverWidget(QFrame):
         # Текст состояния
         painter.setPen(Qt.black)
         painter.setFont(QFont("Sans", 14))
-        state_text = "Равновесие" if abs(self.angle) < 0.01 else "Нет равновесия"
-        painter.drawText(20, 40, f"Состояние: {state_text}")
+        state_text = "Тең салмактуулук" if abs(self.angle) < 0.01 else "Тең салмактуулук жок"
+        painter.drawText(20, 40, f"Абалы: {state_text}")
 
 
 class LabLeverApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная №9 — Равновесие рычага")
+        self.setWindowTitle("№9 Лабораториялык иш — Рычагдын тең салмактуулугу")
         self.setMinimumSize(1000, 600)
 
         main_layout = QHBoxLayout(self)
@@ -171,14 +178,14 @@ class LabLeverApp(QWidget):
         left_layout.addWidget(self.lever)
 
         # Панель управления
-        lbl_title = QLabel("<b>Условие равновесия рычага</b>")
+        lbl_title = QLabel("<b>Рычагдын тең салмактуулугу</b>")
         lbl_title.setFont(QFont("Sans", 14))
         right_layout.addWidget(lbl_title)
 
         lbl_desc = QLabel(
-            "Для равновесия рычага должно выполняться правило моментов:\n"
+            "Рычаг тең салмактуулукта болушу үчүн моменттердин эрежесин аткаруу керек:\n"
             "M1 = M2  =>  F1 · L1 = F2 · L2\n"
-            "Подвесьте грузы так, чтобы уравновесить рычаг."
+            "Жүктөрдү илип, рычагды тең салмакка келтириңиз."
         )
         lbl_desc.setWordWrap(True)
         right_layout.addWidget(lbl_desc)
@@ -188,17 +195,17 @@ class LabLeverApp(QWidget):
         group_left = QFrame()
         group_left.setFrameShape(QFrame.StyledPanel)
         lay_left = QVBoxLayout(group_left)
-        lay_left.addWidget(QLabel("<b>Левое плечо (L1)</b>"))
+        lay_left.addWidget(QLabel("<b>Сол ийин (L1)</b>"))
         
         self.input_m1 = QLineEdit()
         self.input_m1.setPlaceholderText("Масса m1 (г)")
         lay_left.addWidget(self.input_m1)
         
         self.input_l1 = QLineEdit()
-        self.input_l1.setPlaceholderText("Плечо L1 (1-5)")
+        self.input_l1.setPlaceholderText("Ийин L1 (1-5)")
         lay_left.addWidget(self.input_l1)
         
-        btn_add_left = QPushButton("Добавить слева")
+        btn_add_left = QPushButton("Сол жакка кошуу")
         btn_add_left.clicked.connect(self.add_left)
         lay_left.addWidget(btn_add_left)
         right_layout.addWidget(group_left)
@@ -207,31 +214,35 @@ class LabLeverApp(QWidget):
         group_right = QFrame()
         group_right.setFrameShape(QFrame.StyledPanel)
         lay_right = QVBoxLayout(group_right)
-        lay_right.addWidget(QLabel("<b>Правое плечо (L2)</b>"))
+        lay_right.addWidget(QLabel("<b>Оң ийин (L2)</b>"))
         
         self.input_m2 = QLineEdit()
         self.input_m2.setPlaceholderText("Масса m2 (г)")
         lay_right.addWidget(self.input_m2)
         
         self.input_l2 = QLineEdit()
-        self.input_l2.setPlaceholderText("Плечо L2 (1-5)")
+        self.input_l2.setPlaceholderText("Ийин L2 (1-5)")
         lay_right.addWidget(self.input_l2)
         
-        btn_add_right = QPushButton("Добавить справа")
+        btn_add_right = QPushButton("Оң жакка кошуу")
         btn_add_right.clicked.connect(self.add_right)
         lay_right.addWidget(btn_add_right)
         right_layout.addWidget(group_right)
 
         # Управление
-        btn_clear = QPushButton("Очистить (Снять всё)")
+        btn_clear = QPushButton("Тазалоо (Бардыгын алуу)")
         btn_clear.setStyleSheet("background-color: #ffcccc;")
         btn_clear.clicked.connect(self.lever.clear_weights)
         right_layout.addWidget(btn_clear)
 
         right_layout.addSpacing(20)
-        right_layout.addWidget(QLabel("<b>Проверка</b>"))
+        right_layout.addWidget(QLabel("<b>Эсептөө жана Текшерүү</b>"))
         
-        btn_check = QPushButton("Проверить равновесие")
+        self.input_answer = QLineEdit()
+        self.input_answer.setPlaceholderText("Моментти киргизиңиз (г·см)")
+        right_layout.addWidget(self.input_answer)
+        
+        btn_check = QPushButton("Текшерүү")
         btn_check.clicked.connect(self.check_answer)
         right_layout.addWidget(btn_check)
 
@@ -248,11 +259,11 @@ class LabLeverApp(QWidget):
             m = float(input_m.text())
             l = int(input_l.text())
         except ValueError:
-            QMessageBox.warning(self, "Ошибка", "Введите числовые значения для массы и плеча.")
+            QMessageBox.warning(self, "Ката", "Масса жана ийин үчүн сан маанилерин киргизиңиз.")
             return
         
         if l < 1 or l > 5:
-            QMessageBox.warning(self, "Ошибка", "Плечо должно быть от 1 до 5.")
+            QMessageBox.warning(self, "Ката", "Ийин 1ден 5ке чейин болушу керек.")
             return
 
         # Для левой стороны индекс отрицательный, для правой положительный
@@ -260,6 +271,12 @@ class LabLeverApp(QWidget):
         self.lever.add_weight(m, pos_index)
 
     def check_answer(self):
+        # Проверка условия равновесия пользователем
+        # Пусть пользователь введет момент одной из сил (например, M1 = m1*l1)
+        # Это упрощенная проверка, так как грузов может быть много.
+        # Лучше спросить: "Рычаг тең салмактуулуктабы?" (Да/Нет)
+        # Но для разнообразия оставим поле ввода.
+        
         # Рассчитаем реальный баланс
         moment_sum = 0
         for w in self.lever.weights:
@@ -268,13 +285,13 @@ class LabLeverApp(QWidget):
         is_balanced = (moment_sum == 0)
         
         if is_balanced:
-            QMessageBox.information(self, "Результат", "✅ Рычаг в равновесии!\nВы сделали верно.")
+            QMessageBox.information(self, "Жыйынтык", "✅ Рычаг тең салмактуулукта!\nСиз туура кылдыңыз.")
         else:
             if moment_sum > 0:
-                side = "Правая сторона"
+                side = "Оң жагы"
             else:
-                side = "Левая сторона"
-            QMessageBox.warning(self, "Результат", f"❌ Нет равновесия.\nПеревешивает {side}.")
+                side = "Сол жагы"
+            QMessageBox.warning(self, "Жыйынтык", f"❌ Тең салмактуулук жок.\n{side} оор тартып жатат.")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
