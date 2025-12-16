@@ -1,394 +1,298 @@
-# lab_young_spring.py
-# Требуется: pip install PySide6
-import sys, math, random
+import sys
+import math
+import random
+from statistics import mean
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QMessageBox, QFrame, QSlider, QCheckBox, QSpinBox
+    QPushButton, QLineEdit, QMessageBox, QFrame, QGroupBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QSlider
 )
-from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPolygonF
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient, QRadialGradient
 from PySide6.QtCore import Qt, QTimer, QPointF
 
-# Универсальный аналоговый прибор (в стиле предыдущих работ)
-class MeterWidget(QFrame):
-    def __init__(self, kind="N", parent=None):
-        super().__init__(parent)
-        self.setMinimumSize(120, 120)
-        self.kind = kind
-        self.value = 0.0
-        self.max_display = 10.0
-
-    def set_value(self, val, vmax=None):
-        self.value = val if val is not None else 0.0
-        if vmax is not None:
-            self.max_display = max(1e-6, float(vmax))
-        self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-        cx, cy = w//2, h//2
-        R = min(w, h)//2 - 8
-        p.fillRect(self.rect(), QColor(250,250,250))
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(255,255,255))
-        p.drawEllipse(cx - R, cy - R, 2*R, 2*R)
-        p.setPen(QPen(Qt.black,1))
-        for ang in range(-60, 61, 10):
-            r = math.radians(ang)
-            p.drawLine(cx + int((R-8)*math.cos(r)), cy - int((R-8)*math.sin(r)),
-                       cx + int(R*math.cos(r)),       cy - int(R*math.sin(r)))
-        frac = 0.0
-        if self.max_display > 0:
-            frac = max(0.0, min(1.0, abs(self.value) / self.max_display))
-        ang = -60 + frac*120.0
-        r = math.radians(ang)
-        p.setPen(QPen(QColor(200,30,30),2))
-        p.drawLine(cx, cy, cx + int((R-14)*math.cos(r)), cy - int((R-14)*math.sin(r)))
-        p.setPen(QPen(Qt.black,2)); p.setFont(QFont("Sans",12,QFont.Bold))
-        p.drawText(cx-8, cy+6, self.kind)
-        p.setFont(QFont("Sans",9))
-        p.drawText(8, h-10, f"{self.value:.2f} {self.kind}")
-
-# Виджет пружины и динамометра с анимацией
+# ==========================================
+# ВИЗУАЛИЗАЦИЯ: Пружина
+# ==========================================
 class SpringWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(640, 420)
-        # модельные параметры
-        self.k_true = 50.0  # жёсткость пружины, Н/м (условные единицы: N и px -> 1 N -> 100 px)
-        self.rest_length = 120.0  # длина пружины в покое (px)
-        self.mass_attached = 0.0  # масса в кг
+        self.setMinimumSize(300, 550)
+        self.setStyleSheet("background-color: #fcfcfc; border: 1px solid #ccc; border-radius: 8px;")
+
+        # Физические параметры
+        self.px_per_cm = 15.0   # 1 см = 15 пикселей
+        self.natural_len_cm = 10.0
+        self.k = 50.0           # Н/м (скрыто)
+        self.mass = 0.0         # кг
         self.g = 9.81
-        self.force_external = 0.0  # внешняя сила (Н)
-        # визуальные
-        self.current_length = self.rest_length
-        self.target_length = self.rest_length
+
+        # Анимация
+        self.current_y = 0.0
+        self.target_y = 0.0
+        self.velocity = 0.0
+        
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self._tick)
-        self.timer.start(16)  # ~60 FPS
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(20)
 
-    def set_params(self, k=None, rest_length=None):
-        if k is not None: self.k_true = float(k)
-        if rest_length is not None: self.rest_length = float(rest_length)
-        self.current_length = self.rest_length
-        self.target_length = self.rest_length
+        self.reset_spring()
+
+    def reset_spring(self):
+        natural_px = self.natural_len_cm * self.px_per_cm
+        self.current_y = natural_px
+        self.target_y = natural_px
+        self.velocity = 0.0
+
+    def set_experiment(self, k_val):
+        self.k = k_val
+        self.update_physics()
+
+    def set_mass(self, mass_g):
+        self.mass = mass_g / 1000.0 # грамм -> кг
+        self.update_physics()
+
+    def update_physics(self):
+        # F = k * x  =>  m*g = k * x  =>  x = (m*g)/k
+        if self.k <= 0: return
+        
+        extension_m = (self.mass * self.g) / self.k
+        extension_cm = extension_m * 100.0
+        extension_px = extension_cm * self.px_per_cm
+        
+        natural_px = self.natural_len_cm * self.px_per_cm
+        self.target_y = natural_px + extension_px
+
+    def animate(self):
+        force = (self.target_y - self.current_y) * 0.1
+        self.velocity += force
+        self.velocity *= 0.85 # Затухание
+        self.current_y += self.velocity
+        
+        if abs(self.velocity) < 0.01 and abs(self.target_y - self.current_y) < 0.1:
+            self.current_y = self.target_y
+            self.velocity = 0
+            
         self.update()
 
-    def apply_mass(self, m):
-        # масса в кг; сила тяжести F = m*g
-        self.mass_attached = float(m)
-        F = self.mass_attached * self.g
-        self.force_external = F
-        self._update_target_length()
-
-    def apply_force(self, F):
-        self.force_external = float(F)
-        self._update_target_length()
-
-    def _update_target_length(self):
-        # модель: F = k * x  => x = F/k
-        # визуальная единица: 1 N -> 100 px (приблизительно)
-        px_per_N = 100.0
-        x_m = self.force_external / self.k_true if self.k_true != 0 else 0.0
-        x_px = x_m * px_per_N
-        self.target_length = self.rest_length + x_px
-        # ограничим длину
-        self.target_length = max(self.rest_length, min(self.rest_length + 600, self.target_length))
-        self.update()
-
-    def _tick(self):
-        # плавная анимация длины
-        d = self.target_length - self.current_length
-        self.current_length += d * 0.18
-        self.update()
+    def get_extension_cm(self):
+        natural_px = self.natural_len_cm * self.px_per_cm
+        diff_px = self.current_y - natural_px
+        return diff_px / self.px_per_cm
 
     def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        p.fillRect(self.rect(), QColor(250,250,250))
-
         cx = w // 2
-        top = 40
-        # крепление сверху
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(160,160,160))
-        p.drawRect(cx - 40, top - 12, 80, 12)
-        # пружина: рисуем как зигзаг/спираль вдоль вертикали от top до top + current_length
-        y0 = top + 6
-        y1 = int(top + self.current_length)
-        segments = 18
-        width = 40
-        p.setPen(QPen(QColor(120,60,20), 3))
-        pts = []
-        for i in range(segments + 1):
-            t = i / segments
-            x = cx + (math.sin(t * math.pi * 6) * (width * (1 - t*0.6)))
-            y = y0 + t * (y1 - y0)
-            pts.append((x, y))
-        # рисуем линию через точки
-        for i in range(len(pts)-1):
-            p.drawLine(int(pts[i][0]), int(pts[i][1]), int(pts[i+1][0]), int(pts[i+1][1]))
-        # груз (блок) внизу
-        block_w, block_h = 120, 40
-        bx = cx - block_w//2
-        by = y1
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(200,200,220))
-        p.drawRect(bx, by, block_w, block_h)
-        # подпись массы
-        p.setPen(QPen(Qt.black,1)); p.setFont(QFont("Sans",10))
-        p.drawText(bx + 8, by + 24, f"m = {self.mass_attached:.3f} kg")
+        top_y = 40
 
-        # подписи параметров
-        p.setPen(QPen(Qt.black,1)); p.setFont(QFont("Sans",10))
-        # вычислим текущ F и x в модельных единицах
-        px_per_N = 100.0
-        x_px = self.current_length - self.rest_length
-        x_m = x_px / px_per_N
-        F_now = self.force_external  # Н
-        p.drawText(12, 20, f"k (модель) = {self.k_true:.2f} N/m")
-        p.drawText(12, 40, f"F = {F_now:.3f} N")
-        p.drawText(12, 60, f"x = {x_m:.4f} m (≈{x_px:.1f} px)")
+        # 1. Линейка
+        ruler_x = 40
+        painter.setPen(QPen(Qt.black, 1))
+        painter.setFont(QFont("Arial", 8))
+        
+        zero_y = top_y + self.natural_len_cm * self.px_per_cm
+        
+        for i in range(21): # 0..20 см
+            y = zero_y + i * self.px_per_cm
+            if y > h - 10: break
+            
+            painter.drawLine(ruler_x, int(y), ruler_x + 15, int(y))
+            painter.drawText(ruler_x - 30, int(y) + 5, f"{i}")
+            
+            for j in range(1, 5):
+                sub_y = y + j * (self.px_per_cm / 5)
+                painter.drawLine(ruler_x, int(sub_y), ruler_x + 8, int(sub_y))
 
-# Главное приложение
-class LabYoungApp(QWidget):
+        painter.drawText(ruler_x - 35, int(zero_y) - 15, "см")
+
+        # 2. Пружина
+        painter.setPen(QPen(QColor(80, 80, 80), 3))
+        painter.drawLine(cx - 20, top_y, cx + 20, top_y)
+        
+        coils = 15
+        spring_h = self.current_y
+        step = spring_h / coils
+        
+        path = list()
+        path.append(QPointF(cx, top_y))
+        
+        for i in range(coils):
+            y_curr = top_y + i * step
+            offset = 15 if i % 2 == 0 else -15
+            path.append(QPointF(cx + offset, y_curr + step/2))
+        
+        path.append(QPointF(cx, top_y + spring_h))
+        
+        for i in range(len(path) - 1):
+            painter.drawLine(path[i], path[i+1])
+
+        # 3. Груз
+        if self.mass > 0:
+            bottom_y = top_y + spring_h
+            box_w = 50
+            box_h = 50 + (self.mass * 10)
+            if box_h > 100: box_h = 100
+            
+            painter.setPen(QPen(Qt.black, 2))
+            painter.drawLine(cx, int(bottom_y), cx, int(bottom_y + 15))
+            
+            grad = QLinearGradient(cx - box_w/2, 0, cx + box_w/2, 0)
+            grad.setColorAt(0, QColor(100, 100, 100))
+            grad.setColorAt(0.5, QColor(200, 200, 200))
+            grad.setColorAt(1, QColor(80, 80, 80))
+            
+            painter.setBrush(grad)
+            painter.drawRect(int(cx - box_w/2), int(bottom_y + 15), int(box_w), int(box_h))
+            
+            painter.setPen(Qt.black)
+            painter.setFont(QFont("Arial", 10, QFont.Bold))
+            mass_g = int(self.mass * 1000)
+            painter.drawText(int(cx - box_w/2), int(bottom_y + 15), int(box_w), int(box_h), Qt.AlignCenter, f"{mass_g} г")
+            
+            # Стрелка
+            painter.setPen(QPen(Qt.red, 2))
+            arrow_y = bottom_y
+            painter.drawLine(cx, int(arrow_y), ruler_x + 20, int(arrow_y))
+            painter.drawText(ruler_x + 25, int(arrow_y) + 5, "◄")
+
+
+# ==========================================
+# ГЛАВНОЕ ОКНО
+# ==========================================
+class LabSpringApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Юнг модуль (пружина) — k = F / x")
-        self.setMinimumSize(1100, 700)
+        self.setWindowTitle("Лабораторная работа №6: Закон Гука")
+        self.resize(1100, 700)
+        self.setup_ui()
+        self.new_experiment()
 
+    def setup_ui(self):
         main = QHBoxLayout(self)
-        left = QVBoxLayout(); right = QVBoxLayout()
-        main.addLayout(left, 2); main.addLayout(right, 1)
 
-        # виджет пружины
+        # --- СЛЕВА: Стенд ---
+        left_group = QGroupBox("Стенд")
+        left_layout = QVBoxLayout()
         self.spring = SpringWidget()
-        left.addWidget(self.spring)
+        left_layout.addWidget(self.spring)
+        left_group.setLayout(left_layout)
+        main.addWidget(left_group, 1)
 
-        # приборы (аналоговый динамометр)
-        meters = QHBoxLayout()
-        self.dynamometer = MeterWidget("N")
-        meters.addWidget(self.dynamometer)
-        left.addLayout(meters)
+        # --- СПРАВА: Управление ---
+        right_panel = QVBoxLayout()
+        main.addLayout(right_panel, 1)
 
-        # правая панель: параметры и поля ученика
-        right.addWidget(QLabel("<b>Параметры пружины</b>"))
-        self.input_k = QLineEdit(); self.input_k.setPlaceholderText("k (N/m) — модель (опционально)")
-        self.input_rest = QLineEdit(); self.input_rest.setPlaceholderText("Длина покоя (px) — опционально")
-        right.addWidget(self.input_k)
-        right.addWidget(self.input_rest)
+        # 1. Задание
+        task_g = QGroupBox("Задание")
+        task_l = QVBoxLayout()
+        task_l.addWidget(QLabel("1. Меняйте массу груза ползунком."))
+        task_l.addWidget(QLabel("2. Измерьте удлинение (x) по линейке."))
+        task_l.addWidget(QLabel("3. Формула: F = k * x  (F = m * g)."))
+        task_l.addWidget(QLabel("4. Вычислите жесткость: k = (m * g) / x."))
+        task_g.setLayout(task_l)
+        right_panel.addWidget(task_g)
 
-        right.addSpacing(6)
-        right.addWidget(QLabel("<b>Приложенная сила / масса</b>"))
-        # режим: задавать массу или силу
-        self.chk_force_mode = QCheckBox("Задавать силу вручную (иначе — добавлять массу)")
-        right.addWidget(self.chk_force_mode)
-        # масса
-        mass_row = QHBoxLayout()
-        self.spin_mass = QDoubleSpinBox = None
-        self.input_mass = QLineEdit(); self.input_mass.setPlaceholderText("m (kg) — масса груза")
-        mass_row.addWidget(self.input_mass)
-        btn_add_mass = QPushButton("Добавить груз")
-        btn_add_mass.clicked.connect(self.add_mass)
-        mass_row.addWidget(btn_add_mass)
-        right.addLayout(mass_row)
-        # сила через слайдер
-        right.addWidget(QLabel("Сила F (N) — ползунок"))
-        self.slider_F = QSlider(Qt.Horizontal)
-        self.slider_F.setRange(0, 500)  # 0..5.00 N scaled by 100
-        self.slider_F.setValue(0)
-        self.slider_F.valueChanged.connect(self.on_slider_F)
-        right.addWidget(self.slider_F)
-        self.lbl_F = QLabel("F = 0.00 N")
-        right.addWidget(self.lbl_F)
+        # 2. Управление массой
+        ctrl_g = QGroupBox("Масса груза")
+        ctrl_l = QVBoxLayout()
+        
+        self.lbl_mass = QLabel("Масса: 0 г")
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(0, 500)
+        self.slider.setValue(0)
+        self.slider.setTickPosition(QSlider.TicksBelow)
+        self.slider.setTickInterval(50)
+        self.slider.valueChanged.connect(self.update_mass)
+        
+        ctrl_l.addWidget(self.lbl_mass)
+        ctrl_l.addWidget(self.slider)
+        ctrl_g.setLayout(ctrl_l)
+        right_panel.addWidget(ctrl_g)
 
-        right.addSpacing(6)
-        right.addWidget(QLabel("<b>Режим</b>"))
-        self.chk_manual = QCheckBox("Ручной режим (ученик сам записывает показания)")
-        right.addWidget(self.chk_manual)
+        # 3. Ввод данных
+        inp_g = QGroupBox("Вычисления")
+        inp_l = QVBoxLayout()
+        
+        self.in_m = QLineEdit(); self.in_m.setPlaceholderText("Масса m (кг!)")
+        self.in_x = QLineEdit(); self.in_x.setPlaceholderText("Удлинение x (м!)")
+        self.in_k = QLineEdit(); self.in_k.setPlaceholderText("Жесткость k (Н/м)")
+        
+        inp_l.addWidget(QLabel("Масса (кг):"))
+        inp_l.addWidget(self.in_m)
+        inp_l.addWidget(QLabel("Удлинение (метр):"))
+        inp_l.addWidget(self.in_x)
+        inp_l.addWidget(QLabel("Жесткость (k):"))
+        inp_l.addWidget(self.in_k)
+        inp_g.setLayout(inp_l)
+        right_panel.addWidget(inp_g)
 
-        right.addSpacing(6)
-        right.addWidget(QLabel("<b>Поля ученика (введите измерения)</b>"))
-        self.input_F_meas = QLineEdit(); self.input_F_meas.setPlaceholderText("F (N) — измеренная сила")
-        self.input_x_meas = QLineEdit(); self.input_x_meas.setPlaceholderText("x (m) — удлинение")
-        self.input_k_user = QLineEdit(); self.input_k_user.setPlaceholderText("k (N/m) — ваш расчёт")
-        right.addWidget(self.input_F_meas)
-        right.addWidget(self.input_x_meas)
-        right.addWidget(self.input_k_user)
+        # 4. Кнопки
+        btn_check = QPushButton("Проверить и Добавить")
+        btn_check.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        btn_check.clicked.connect(self.check_answer)
+        
+        btn_new = QPushButton("Новая пружина (Новое k)")
+        btn_new.clicked.connect(self.new_experiment)
+        
+        right_panel.addWidget(btn_check)
+        right_panel.addWidget(btn_new)
 
-        # кнопки
-        btn_apply = QPushButton("Применить параметры")
-        btn_apply.clicked.connect(self.apply_params)
-        btn_measure = QPushButton("Измерить (имитация)")
-        btn_measure.clicked.connect(self.measure)
-        btn_check = QPushButton("Проверить k")
-        btn_check.clicked.connect(self.check)
-        btn_show = QPushButton("Показать ответ")
-        btn_show.clicked.connect(self.show_answer)
-        btn_random = QPushButton("Случайный эксперимент")
-        btn_random.clicked.connect(self.random_experiment)
-        btn_reset = QPushButton("Сброс")
-        btn_reset.clicked.connect(self.reset_all)
+        # 5. Таблица
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["m (кг)", "x (м)", "k (Н/м)"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        right_panel.addWidget(QLabel("Результаты:"))
+        right_panel.addWidget(self.table)
+        
+        self.lbl_res = QLabel("")
+        right_panel.addWidget(self.lbl_res)
 
-        right.addWidget(btn_apply)
-        right.addWidget(btn_measure)
-        right.addWidget(btn_check)
-        right.addWidget(btn_show)
-        right.addWidget(btn_random)
-        right.addWidget(btn_reset)
+    def new_experiment(self):
+        # Случайное k (20..100)
+        self.true_k = random.randint(20, 100)
+        self.spring.set_experiment(self.true_k)
+        
+        self.slider.setValue(0)
+        self.in_m.clear()
+        self.in_x.clear()
+        self.in_k.clear()
+        self.table.setRowCount(0)
+        self.lbl_res.setText(f"--- Дана новая пружина ---")
 
-        right.addSpacing(8)
-        right.addWidget(QLabel("<b>Результаты и подсказки</b>"))
-        self.lbl_Fnow = QLabel("F (модель): — N")
-        self.lbl_xnow = QLabel("x (модель): — m")
-        self.lbl_feedback = QLabel("")
-        self.lbl_feedback.setWordWrap(True)
-        right.addWidget(self.lbl_Fnow)
-        right.addWidget(self.lbl_xnow)
-        right.addWidget(self.lbl_feedback)
-        right.addStretch(1)
+    def update_mass(self):
+        val = self.slider.value()
+        self.lbl_mass.setText(f"Масса: {val} г")
+        self.spring.set_mass(val)
+        
+        self.in_m.setText(str(val / 1000.0))
+        
+        # Получаем текущее удлинение
+        x_cm = self.spring.get_extension_cm()
+        self.in_x.setText(f"{x_cm / 100.0:.3f}")
 
-        # стартовые параметры
-        self.random_experiment()
-        # таймер для обновления прибора
-        self.ui_timer = QTimer(self)
-        self.ui_timer.timeout.connect(self._update_meter)
-        self.ui_timer.start(150)
-
-    def on_slider_F(self, val):
-        F = val / 100.0
-        self.lbl_F.setText(f"F = {F:.2f} N")
-        # если в режиме ручного задания силы — применяем сразу
-        if self.chk_force_mode.isChecked():
-            self.spring.apply_force(F)
-            self._update_labels()
-
-    def apply_params(self):
+    def check_answer(self):
         try:
-            k = float(self.input_k.text()) if self.input_k.text().strip() else self.spring.k_true
-            rest = float(self.input_rest.text()) if self.input_rest.text().strip() else self.spring.rest_length
-        except Exception:
-            QMessageBox.warning(self, "Ошибка", "Введите числовые значения k и длины покоя.")
+            u_k = float(self.in_k.text())
+        except:
+            QMessageBox.warning(self, "Ошибка", "Введите корректное число!")
             return
-        self.spring.set_params(k=k, rest_length=rest)
-        self.input_F_meas.clear(); self.input_x_meas.clear(); self.input_k_user.clear()
-        self.lbl_feedback.setText("Параметры применены. Добавьте груз или задайте силу ползунком.")
-        self._update_labels()
 
-    def add_mass(self):
-        try:
-            m = float(self.input_mass.text())
-        except Exception:
-            QMessageBox.warning(self, "Ошибка", "Введите числовое значение массы (kg).")
-            return
-        if self.chk_force_mode.isChecked():
-            QMessageBox.information(self, "Инфо", "Сначала отключите режим задания силы вручную.")
-            return
-        self.spring.apply_mass(m)
-        self.lbl_feedback.setText(f"Груз m = {m:.3f} kg добавлен. Нажмите «Измерить» или введите свои значения.")
-        self._update_labels()
-
-    def measure(self):
-        # автоматическое заполнение полей (если не ручной режим)
-        if self.chk_manual.isChecked():
-            self.lbl_feedback.setText("Ручной режим: поля не заполняются автоматически.")
-            self._update_labels()
-            return
-        # модельные значения
-        px_per_N = 100.0
-        x_px = self.spring.current_length - self.spring.rest_length
-        x_m = x_px / px_per_N
-        F = self.spring.force_external
-        # имитация измерения с шумом
-        F_meas = F * (1 + random.uniform(-0.02, 0.02))
-        x_meas = x_m * (1 + random.uniform(-0.015, 0.015))
-        self.input_F_meas.setText(f"{F_meas:.3f}")
-        self.input_x_meas.setText(f"{x_meas:.4f}")
-        self.lbl_feedback.setText("Поля заполнены имитацией измерений (с небольшой погрешностью).")
-        self._update_labels()
-
-    def check(self):
-        try:
-            F_user = float(self.input_F_meas.text())
-            x_user = float(self.input_x_meas.text())
-            k_user = float(self.input_k_user.text())
-        except Exception:
-            QMessageBox.warning(self, "Ошибка", "Введите числовые значения F, x и ваш расчёт k.")
-            return
-        if abs(x_user) < 1e-6:
-            QMessageBox.information(self, "Инфо", "x слишком мал для корректного расчёта k.")
-            return
-        k_calc = F_user / x_user
-        k_true = self.spring.k_true
-        tol = max(0.03 * abs(k_true), 1e-3)
-        ok_user = abs(k_user - k_calc) <= max(0.02 * abs(k_calc), 1e-3)
-        ok_true = abs(k_calc - k_true) <= tol
-        lines = []
-        if ok_user:
-            lines.append("✅ Ваш расчёт k соответствует вычислению по измерениям.")
+        error_margin = self.true_k * 0.05
+        if abs(u_k - self.true_k) <= error_margin:
+            self.lbl_res.setText(f"<span style='color:green'><b>ВЕРНО! k ≈ {self.true_k} Н/м</b></span>")
+            
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(self.in_m.text()))
+            self.table.setItem(row, 1, QTableWidgetItem(self.in_x.text()))
+            self.table.setItem(row, 2, QTableWidgetItem(str(u_k)))
         else:
-            lines.append(f"❌ Ваш k не совпадает с расчётом по измерениям. k_расчёт = {k_calc:.3f} N/m.")
-        if ok_true:
-            lines.append("✅ Измерение близко к модельному значению k (по заданной модели).")
-        else:
-            lines.append(f"❌ Измерение отличается от модельного k = {k_true:.3f} N/m (допуск ±{tol:.3f}).")
-        self.lbl_feedback.setText("\n".join(lines))
-
-    def show_answer(self):
-        # показываем правильные значения по модели
-        px_per_N = 100.0
-        x_px = self.spring.current_length - self.spring.rest_length
-        x_m = x_px / px_per_N
-        F = self.spring.force_external
-        if abs(x_m) < 1e-9:
-            QMessageBox.information(self, "Инфо", "x слишком мал или не задан.")
-            return
-        k_calc = F / x_m
-        self.input_F_meas.setText(f"{F:.3f}")
-        self.input_x_meas.setText(f"{x_m:.4f}")
-        self.input_k_user.setText(f"{k_calc:.3f}")
-        self.lbl_feedback.setText("Показаны правильные значения по модели.")
-        self._update_labels()
-
-    def random_experiment(self):
-        # генерируем случайную k, массу и/или силу
-        k = random.uniform(10.0, 200.0)  # N/m
-        rest = random.uniform(80.0, 160.0)
-        m = random.uniform(0.02, 0.8)  # kg
-        self.input_k.setText(f"{k:.2f}")
-        self.input_rest.setText(f"{rest:.1f}")
-        self.input_mass.setText(f"{m:.3f}")
-        self.spring.set_params(k=k, rest_length=rest)
-        self.spring.apply_mass(m)
-        self.input_F_meas.clear(); self.input_x_meas.clear(); self.input_k_user.clear()
-        self.lbl_feedback.setText("Случайный эксперимент сгенерирован. Нажмите «Измерить» или введите свои значения.")
-        self._update_labels()
-
-    def reset_all(self):
-        self.input_k.clear(); self.input_rest.clear(); self.input_mass.clear()
-        self.input_F_meas.clear(); self.input_x_meas.clear(); self.input_k_user.clear()
-        self.chk_force_mode.setChecked(False); self.chk_manual.setChecked(False)
-        self.spring.set_params(k=50.0, rest_length=120.0)
-        self.spring.mass_attached = 0.0
-        self.spring.force_external = 0.0
-        self.spring.current_length = self.spring.rest_length
-        self.spring.target_length = self.spring.rest_length
-        self.lbl_feedback.setText("Сброшено.")
-        self._update_labels()
-
-    def _update_meter(self):
-        # обновляем показания динамометра и подписи
-        F_now = self.spring.force_external
-        self.dynamometer.set_value(F_now, vmax=max(0.1, max(1.0, F_now*1.5)))
-        # x в метрах
-        px_per_N = 100.0
-        x_px = self.spring.current_length - self.spring.rest_length
-        x_m = x_px / px_per_N
-        self.lbl_Fnow.setText(f"F (модель): {F_now:.3f} N")
-        self.lbl_xnow.setText(f"x (модель): {x_m:.4f} m")
-
-    def _update_labels(self):
-        self._update_meter()
+            self.lbl_res.setText(f"<span style='color:red'><b>ОШИБКА. Правильно: {self.true_k} Н/м</b></span>")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    win = LabYoungApp()
+    app.setStyle("Fusion")
+    win = LabSpringApp()
     win.show()
     sys.exit(app.exec())

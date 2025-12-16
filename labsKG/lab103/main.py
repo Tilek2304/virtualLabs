@@ -1,380 +1,273 @@
-# lab_surface_tension.py
-# Требуется: pip install PySide6
-import sys, math, random
+import sys
+import random
+import math
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QMessageBox, QFrame, QSlider, QCheckBox
+    QPushButton, QLineEdit, QMessageBox, QFrame, QGroupBox
 )
-from PySide6.QtGui import QPainter, QColor, QPen, QFont, QBrush
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPainter, QColor, QPen, QFont
+from PySide6.QtCore import Qt, QTimer, QPointF
 
-G = 9.80665  # м/с^2
-
-# Универсалдуу аналогдук прибор (масса / убакыт)
-class MeterWidget(QFrame):
-    def __init__(self, kind="g", parent=None):
-        super().__init__(parent)
-        self.setMinimumSize(120, 100)
-        self.kind = kind
-        self.value = 0.0
-        self.max_display = 1.0
-
-    def set_value(self, val, vmax=None):
-        self.value = val if val is not None else 0.0
-        if vmax is not None:
-            self.max_display = max(1e-9, float(vmax))
-        self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-        cx, cy = w//2, h//2
-        R = min(w, h)//2 - 8
-        p.fillRect(self.rect(), QColor(250,250,250))
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(255,255,255))
-        p.drawEllipse(cx - R, cy - R, 2*R, 2*R)
-        p.setPen(QPen(Qt.black,1))
-        for ang in range(-60, 61, 10):
-            r = math.radians(ang)
-            p.drawLine(cx + int((R-8)*math.cos(r)), cy - int((R-8)*math.sin(r)),
-                       cx + int(R*math.cos(r)),       cy - int(R*math.sin(r)))
-        frac = 0.0
-        if self.max_display > 0:
-            frac = max(0.0, min(1.0, abs(self.value) / self.max_display))
-        ang = -60 + frac*120.0
-        r = math.radians(ang)
-        p.setPen(QPen(QColor(200,30,30),2))
-        p.drawLine(cx, cy, cx + int((R-14)*math.cos(r)), cy - int((R-14)*math.sin(r)))
-        p.setPen(QPen(Qt.black,2)); p.setFont(QFont("Sans",12,QFont.Bold))
-        p.drawText(cx-12, cy+6, self.kind)
-        p.setFont(QFont("Sans",9))
-        p.drawText(8, h-10, f"{self.value:.3f}")
-
-# Бюретка жана тамчы
-class BuretteWidget(QFrame):
+# ==========================================
+# ВИЗУАЛИЗАЦИЯ: Бюретка + Тамчы + Тараза
+# ==========================================
+class SurfaceTensionWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(760, 420)
+        self.setMinimumSize(500, 450)
+        self.setStyleSheet("background-color: #fcfcfc; border: 1px solid #ccc; border-radius: 8px;")
+        
         # Параметрлер
-        self.sigma_true = 0.072  # Н/м
-        self.d_nozzle = 2.0e-3   # д (м)
-        self.flow_rate = 5e-8    # агым ылдамдыгы (кг/с)
-        self.drop_mass = 0.0     # тамчынын массасы (кг)
-        self.drop_attached = True
+        self.sigma = 0.073  
+        self.d = 0.002      
+        self.g = 9.81
+        
+        # Абал
+        self.drops_count = 0
+        self.total_mass = 0.0 
+        self.drop_radius = 0
+        self.drop_y = 50
+        
+        self.is_dripping = False
+        self.is_finished = False # Бүттүбү?
+        
+        # Анимация
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self._tick)
-        self.timer.start(40)     # ~25 FPS
-        self.last_detach_mass = None
-        self.last_detach_d = None
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(30)
 
-    def set_params(self, sigma=None, d_nozzle=None, flow_rate=None):
-        if sigma is not None: self.sigma_true = float(sigma)
-        if d_nozzle is not None: self.d_nozzle = float(d_nozzle)
-        if flow_rate is not None: self.flow_rate = float(flow_rate)
-        self.drop_mass = 0.0
-        self.drop_attached = True
-        self.last_detach_mass = None
-        self.last_detach_d = None
+    def toggle_dripping(self):
+        if self.is_finished: return # Эгер 50 тамчы болсо, токтоп тура берет
+        self.is_dripping = not self.is_dripping
+        if self.is_dripping and self.drop_radius == 0:
+            self.drop_radius = 2
+            self.drop_y = 50
+
+    def animate(self):
+        if not self.is_dripping: return
+        
+        # Тамчынын өсүшү
+        if self.drop_y == 50:
+            if self.drop_radius < 8:
+                self.drop_radius += 0.2
+            else:
+                self.drop_y += 5 # Үзүлдү
+        else:
+            # Түшүү
+            self.drop_y += 10
+            if self.drop_y > 300: # Стаканга түштү
+                self.add_drop()
+                # Жаңы тамчыга даярдоо
+                if not self.is_finished:
+                    self.drop_radius = 2
+                    self.drop_y = 50
+                else:
+                    self.is_dripping = False
+                    self.drop_radius = 0
+                
         self.update()
 
-    def _tick(self):
-        if self.drop_attached:
-            dt = 0.04
-            self.drop_mass += self.flow_rate * dt
-            # Үзүлүү шарты: m*g >= π*d*σ
-            threshold = math.pi * self.d_nozzle * self.sigma_true
-            if self.drop_mass * G >= threshold:
-                self.last_detach_mass = self.drop_mass
-                self.last_detach_d = self.d_nozzle
-                self.drop_attached = False
-                self.drop_mass = 0.0
-        self.update()
+    def add_drop(self):
+        if self.is_finished: return
 
-    def simulate_detach_once(self):
-        # m_detach = (π d σ) / g
-        m_detach = (math.pi * self.d_nozzle * self.sigma_true) / G
-        m_detach *= (1 + random.uniform(-0.02, 0.02))
-        self.last_detach_mass = m_detach
-        self.last_detach_d = self.d_nozzle * (1 + random.uniform(-0.01, 0.01))
-        self.drop_mass = 0.0
-        self.drop_attached = True
+        self.drops_count += 1
+        m_drop = (math.pi * self.d * self.sigma) / self.g
+        m_drop *= random.uniform(0.98, 1.02)
+        self.total_mass += m_drop
+        
+        # 50 тамчыдан кийин токтотуу
+        if self.drops_count >= 50:
+            self.is_finished = True
+            self.is_dripping = False
+            self.parent().parent().experiment_finished() # Callback
+
+    def reset(self):
+        self.drops_count = 0
+        self.total_mass = 0.0
+        self.is_dripping = False
+        self.is_finished = False
+        self.drop_radius = 0
+        self.drop_y = 50
         self.update()
-        return self.last_detach_mass, self.last_detach_d
 
     def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        p.fillRect(self.rect(), QColor(250,250,250))
-
         cx = w // 2
-        top = 40
-        # Бюретка
-        tube_w = 120; tube_h = 260
-        tube_x = cx - tube_w//2; tube_y = top + 10
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(240,240,250))
-        p.drawRoundedRect(tube_x, tube_y, tube_w, tube_h, 8, 8)
-        p.setPen(QPen(Qt.black,1))
-        for i in range(0, 13):
-            y = tube_y + 10 + i * (tube_h - 20) / 12
-            p.drawLine(tube_x + tube_w - 6, int(y), tube_x + tube_w - 2, int(y))
-        # КОТОРМО: Burette -> Бюретка
-        p.setFont(QFont("Sans",9)); p.drawText(tube_x + 6, tube_y - 6, "Бюретка")
 
-        # Сопло
-        nozzle_x = cx
-        nozzle_y = tube_y + tube_h + 6
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(200,200,200))
-        p.drawRoundedRect(nozzle_x - 10, nozzle_y - 6, 20, 12, 4, 4)
+        # 1. Бюретка
+        painter.setBrush(QColor(220, 220, 255))
+        painter.setPen(Qt.black)
+        painter.drawRect(cx - 10, 0, 20, 50)
+        
+        # 2. Тамчы
+        if (self.is_dripping or self.drop_radius > 0) and not self.is_finished:
+            painter.setBrush(QColor(100, 150, 255))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(QPointF(cx, self.drop_y), self.drop_radius, self.drop_radius * 1.2)
 
-        # Тамчы
-        rho = 1000.0
-        scale = 400.0
-        if self.drop_attached:
-            V = self.drop_mass / rho
-            if V > 0:
-                r_m = (3.0 * V / (4.0 * math.pi)) ** (1.0/3.0)
-            else:
-                r_m = 0.0005
-            r_px = max(2.0, min(60.0, r_m * scale))
-            p.setPen(QPen(Qt.black,1)); p.setBrush(QColor(120,180,240))
-            p.drawEllipse(int(nozzle_x - r_px), int(nozzle_y), int(2*r_px), int(1.2*r_px))
-            p.setPen(QPen(Qt.black,1)); p.setFont(QFont("Sans",9))
-            p.drawText(12, 18, f"m (тамчы) = {self.drop_mass*1e6:.2f} мг")
-        else:
-            p.setPen(QPen(Qt.black,1)); p.setFont(QFont("Sans",9))
-            # КОТОРМО: Капля оторвалась -> Тамчы үзүлдү
-            p.drawText(12, 18, "Тамчы үзүлдү — кийинкиге даяр.")
-            p.setPen(QPen(Qt.black,1)); p.setBrush(QColor(120,180,240))
-            p.drawEllipse(int(nozzle_x - 6), int(nozzle_y + 18), 12, 12)
+        # 3. Стакан
+        beaker_y = 300
+        beaker_w = 80
+        beaker_h = 60
+        painter.setBrush(QColor(240, 240, 255, 150))
+        painter.setPen(Qt.black)
+        painter.drawRect(cx - beaker_w//2, beaker_y, beaker_w, beaker_h)
+        
+        # Суунун деңгээли
+        if self.drops_count > 0:
+            level = min(beaker_h - 5, self.drops_count)
+            painter.setBrush(QColor(100, 150, 255, 180))
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(cx - beaker_w//2 + 2, beaker_y + beaker_h - level, beaker_w - 4, level)
 
-        # Текст
-        p.setPen(QPen(Qt.black,1)); p.setFont(QFont("Sans",10))
-        p.drawText(12, 36, f"σ (модель) = {self.sigma_true:.5f} Н/м")
-        p.drawText(12, 54, f"d сопло = {self.d_nozzle*1e3:.2f} мм")
-        p.drawText(12, 72, f"агым = {self.flow_rate*1e6:.3f} мг/с")
+        # 4. Тараза
+        scale_y = beaker_y + beaker_h
+        painter.setBrush(QColor(50, 50, 50))
+        painter.drawRect(cx - 60, scale_y, 120, 40)
+        painter.setBrush(QColor(200, 255, 200))
+        painter.drawRect(cx - 40, scale_y + 10, 80, 20)
+        
+        # Масса
+        mass_g = self.total_mass * 1000
+        painter.setPen(Qt.black)
+        painter.setFont(QFont("Courier", 12, QFont.Bold))
+        painter.drawText(cx - 35, scale_y + 25, f"{mass_g:.3f} g")
+        
+        # Тамчылардын саны
+        painter.setFont(QFont("Arial", 10))
+        painter.drawText(cx + 70, beaker_y + 30, f"n = {self.drops_count}")
 
-        if self.last_detach_mass is not None:
-            p.drawText(12, 90, f"Акыркы үзүлгөн m = {self.last_detach_mass*1e6:.2f} мг, d = {self.last_detach_d*1e3:.2f} мм")
-
+# ==========================================
+# НЕГИЗГИ ТЕРЕЗЕ
+# ==========================================
 class LabSurfaceTensionApp(QWidget):
     def __init__(self):
         super().__init__()
-        # КОТОРМО: Бетонное натяжение -> Суюктуктун беттик тартылуу коэффициентин аныктоо (σ = m·g / (π·d))
-        self.setWindowTitle("Лабораториялык иш — Суюктуктун беттик тартылуу коэффициенти (σ = m·g / (π·d))")
-        self.setMinimumSize(1100, 700)
+        self.setWindowTitle("Лабораториялык иш №18: Беттик тартылуу")
+        self.resize(1000, 600)
+        self.setup_ui()
+        self.new_experiment()
 
+    def setup_ui(self):
         main = QHBoxLayout(self)
-        left = QVBoxLayout(); right = QVBoxLayout()
-        main.addLayout(left, 2); main.addLayout(right, 1)
 
-        self.burette = BuretteWidget()
-        left.addWidget(self.burette)
+        # --- СОЛ ЖАК ---
+        left_group = QGroupBox("Тажрыйба стенди")
+        left_layout = QVBoxLayout()
+        self.stand = SurfaceTensionWidget(self) 
+        left_layout.addWidget(self.stand)
+        left_group.setLayout(left_layout)
+        main.addWidget(left_group, 2)
 
-        meters = QHBoxLayout()
-        self.mass_meter = MeterWidget("мг")
-        self.time_meter = MeterWidget("с")
-        meters.addWidget(self.mass_meter); meters.addWidget(self.time_meter)
-        left.addLayout(meters)
+        # --- ОҢ ЖАК ---
+        right_panel = QVBoxLayout()
+        main.addLayout(right_panel, 1)
 
-        # Правая панель
-        # КОТОРМО: Заголовок
-        right.addWidget(QLabel("<b>Тажрыйбанын параметрлери</b>"))
+        # 1. Тапшырма
+        task_g = QGroupBox("Тапшырма")
+        task_l = QVBoxLayout()
+        task_l.addWidget(QLabel("1. 'Баштоо' баскычын басып, 50 тамчы топтоңуз."))
+        task_l.addWidget(QLabel("2. Жалпы массаны (M) жана тамчылардын санын (n) жазыңыз."))
+        task_l.addWidget(QLabel("3. Бир тамчынын массасын (m = M/n) эсептеңиз."))
+        task_l.addWidget(QLabel("4. Формула: σ = (m * g) / (π * d)"))
+        task_g.setLayout(task_l)
+        right_panel.addWidget(task_g)
+
+        # 2. Параметрлер
+        param_g = QGroupBox("Берилген маанилер")
+        param_l = QVBoxLayout()
+        self.lbl_d = QLabel("Түтүктүн диаметри: d = 2 мм (0.002 м)")
+        self.lbl_g = QLabel("Эркин түшүү ылдамдануусу: g = 9.81 м/с²")
+        param_l.addWidget(self.lbl_d)
+        param_l.addWidget(self.lbl_g)
+        param_g.setLayout(param_l)
+        right_panel.addWidget(param_g)
+
+        # 3. Башкаруу
+        ctrl_g = QGroupBox("Башкаруу")
+        ctrl_l = QVBoxLayout()
         
-        self.input_sigma = QLineEdit(); self.input_sigma.setPlaceholderText("мисалы 0.072")
-        self.input_d_mm = QLineEdit(); self.input_d_mm.setPlaceholderText("мисалы 2.0")
-        self.input_flow = QLineEdit(); self.input_flow.setPlaceholderText("мисалы 0.050")
+        self.btn_start = QPushButton("Баштоо (Тамчылатуу)")
+        self.btn_start.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold;")
+        self.btn_start.clicked.connect(self.toggle_drops)
         
-        right.addWidget(QLabel("σ (модель) Н/м (милдеттүү эмес)"))
-        right.addWidget(self.input_sigma)
-        right.addWidget(QLabel("Соплонун диаметри d (мм)"))
-        right.addWidget(self.input_d_mm)
-        right.addWidget(QLabel("Агым ылдамдыгы (мг/с)"))
-        right.addWidget(self.input_flow)
+        ctrl_l.addWidget(self.btn_start)
+        ctrl_g.setLayout(ctrl_l)
+        right_panel.addWidget(ctrl_g)
 
-        right.addSpacing(6)
-        # КОТОРМО: Режим -> Режим
-        right.addWidget(QLabel("<b>Режим</b>"))
-        self.chk_manual = QCheckBox("Кол менен жазуу (авто толтуруу жок)")
-        right.addWidget(self.chk_manual)
-
-        right.addSpacing(6)
-        # КОТОРМО: Поля ученика -> Окуучунун эсептөөлөрү
-        right.addWidget(QLabel("<b>Окуучунун эсептөөлөрү</b>"))
-        self.input_m_meas = QLineEdit(); self.input_m_meas.setPlaceholderText("m (мг) — үзүлгөн тамчынын массасы")
-        self.input_d_meas = QLineEdit(); self.input_d_meas.setPlaceholderText("d (мм) — соплонун диаметри")
-        self.input_sigma_user = QLineEdit(); self.input_sigma_user.setPlaceholderText("σ (Н/м) — сиздин эсептөө")
+        # 4. Эсептөө
+        calc_g = QGroupBox("Эсептөө")
+        calc_l = QVBoxLayout()
         
-        right.addWidget(self.input_m_meas)
-        right.addWidget(self.input_d_meas)
-        right.addWidget(self.input_sigma_user)
+        self.in_M = QLineEdit(); self.in_M.setPlaceholderText("Жалпы масса M (г)")
+        self.in_n = QLineEdit(); self.in_n.setPlaceholderText("Тамчы саны n")
+        self.in_sigma = QLineEdit(); self.in_sigma.setPlaceholderText("Коэффициент σ (Н/м)")
+        
+        btn_check = QPushButton("Текшерүү")
+        btn_check.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        btn_check.clicked.connect(self.check_answer)
+        
+        btn_new = QPushButton("Жаңы суюктук")
+        btn_new.clicked.connect(self.new_experiment)
+        
+        calc_l.addWidget(QLabel("Өлчөнгөн маанилер:"))
+        calc_l.addWidget(self.in_M)
+        calc_l.addWidget(self.in_n)
+        calc_l.addWidget(QLabel("Жооп:"))
+        calc_l.addWidget(self.in_sigma)
+        calc_l.addWidget(btn_check)
+        calc_l.addWidget(btn_new)
+        
+        calc_g.setLayout(calc_l)
+        right_panel.addWidget(calc_g)
+        right_panel.addStretch(1)
 
-        # Кнопки
-        # КОТОРМО: Применить -> Колдонуу
-        btn_apply = QPushButton("Колдонуу")
-        btn_apply.clicked.connect(self.apply_params)
-        # КОТОРМО: Симулировать рост -> Тамчынын өсүүсүн жана үзүлүүсүн симуляциялоо
-        btn_simulate = QPushButton("Тамчынын үзүлүүсүн симуляциялоо")
-        btn_simulate.clicked.connect(self.simulate_detach)
-        # КОТОРМО: Измерить -> Өлчөө
-        btn_measure = QPushButton("Өлчөө")
-        btn_measure.clicked.connect(self.measure)
-        # КОТОРМО: Проверить σ -> σ текшерүү
-        btn_check = QPushButton("σ текшерүү")
-        btn_check.clicked.connect(self.check)
-        # КОТОРМО: Показать ответ -> Жоопту көрсөтүү
-        btn_show = QPushButton("Жоопту көрсөтүү")
-        btn_show.clicked.connect(self.show_answer)
-        # КОТОРМО: Случайный -> Кокустан тандалган
-        btn_random = QPushButton("Кокустан тандалган тажрыйба")
-        btn_random.clicked.connect(self.random_experiment)
-        # КОТОРМО: Сброс -> Кайра баштоо
-        btn_reset = QPushButton("Кайра баштоо")
-        btn_reset.clicked.connect(self.reset_all)
+    def new_experiment(self):
+        liquids = [("Суу", 0.073), ("Спирт", 0.022), ("Глицерин", 0.063), ("Ацетон", 0.024)]
+        name, sigma = random.choice(liquids)
+        self.true_sigma = sigma
+        self.stand.sigma = sigma
+        self.stand.reset()
+        
+        self.in_M.clear(); self.in_n.clear(); self.in_sigma.clear()
+        self.btn_start.setEnabled(True)
+        self.btn_start.setText("Баштоо (Тамчылатуу)")
+        self.btn_start.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold;")
+        
+        QMessageBox.information(self, "Жаңы", "Жаңы суюктук куюлду. Ишти баштаңыз.")
 
-        right.addWidget(btn_apply)
-        right.addWidget(btn_simulate)
-        right.addWidget(btn_measure)
-        right.addWidget(btn_check)
-        right.addWidget(btn_show)
-        right.addWidget(btn_random)
-        right.addWidget(btn_reset)
+    def toggle_drops(self):
+        self.stand.toggle_dripping()
+        if self.stand.is_dripping:
+            self.btn_start.setText("Токтотуу (Пауза)")
+            self.btn_start.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold;")
+        else:
+            self.btn_start.setText("Улантуу (Тамчылатуу)")
+            self.btn_start.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold;")
 
-        right.addSpacing(8)
-        # КОТОРМО: Результаты -> Жыйынтыктар
-        right.addWidget(QLabel("<b>Жыйынтыктар</b>"))
-        self.lbl_model = QLabel("Модель: —")
-        self.lbl_feedback = QLabel("")
-        self.lbl_feedback.setWordWrap(True)
-        right.addWidget(self.lbl_model)
-        right.addWidget(self.lbl_feedback)
-        right.addStretch(1)
+    def experiment_finished(self):
+        self.btn_start.setText("Бүттү (50 тамчы)")
+        self.btn_start.setEnabled(False)
+        self.btn_start.setStyleSheet("background-color: #9E9E9E; color: white; font-weight: bold;")
+        QMessageBox.information(self, "Бүттү", "50 тамчы топтолду! Таразадагы массаны жазып алыңыз.")
 
-        self.random_experiment()
-        self.ui_timer = QTimer(self)
-        self.ui_timer.timeout.connect(self._update_ui)
-        self.ui_timer.start(150)
-
-    def apply_params(self):
+    def check_answer(self):
         try:
-            sigma = float(self.input_sigma.text()) if self.input_sigma.text().strip() else self.burette.sigma_true
-            d_mm = float(self.input_d_mm.text()) if self.input_d_mm.text().strip() else self.burette.d_nozzle*1e3
-            flow_mg_s = float(self.input_flow.text()) if self.input_flow.text().strip() else self.burette.flow_rate*1e6
-        except Exception:
-            # КОТОРМО: Ошибка -> Ката
-            QMessageBox.warning(self, "Ката", "σ, d жана агым үчүн сан маанилерин киргизиңиз.")
+            val = float(self.in_sigma.text())
+        except:
+            QMessageBox.warning(self, "Ката", "Сан жазыңыз!")
             return
-        d_m = d_mm * 1e-3
-        flow_kg_s = flow_mg_s * 1e-6
-        self.burette.set_params(sigma=sigma, d_nozzle=d_m, flow_rate=flow_kg_s)
-        # КОТОРМО: Параметры применены -> Параметрлер колдонулду
-        self.lbl_feedback.setText("Параметрлер колдонулду. «Тамчынын үзүлүүсүн симуляциялоо» баскычын басыңыз.")
-        self._update_ui()
-
-    def simulate_detach(self):
-        m_detach, d_detach = self.burette.simulate_detach_once()
-        flow = self.burette.flow_rate
-        t_est = m_detach / flow if flow > 1e-12 else 0.0
-        self.mass_meter.set_value(m_detach*1e6, vmax=max(1.0, m_detach*1e6*2))
-        self.time_meter.set_value(t_est, vmax=max(0.1, t_est*1.5))
-        # КОТОРМО: Симуляция... -> Симуляция: тамчы үзүлдү. «Өлчөө» баскычын басыңыз.
-        self.lbl_feedback.setText("Симуляция: тамчы үзүлдү. «Өлчөө» баскычын басыңыз.")
-        self._update_ui()
-
-    def measure(self):
-        if self.chk_manual.isChecked():
-            self.lbl_feedback.setText("Кол режими: талаалар автоматтык толтурулбайт.")
-            return
-        if self.burette.last_detach_mass is None:
-            m_detach, d_detach = self.burette.simulate_detach_once()
+            
+        if abs(val - self.true_sigma) < 0.005:
+            QMessageBox.information(self, "Туура", f"✅ Азаматсыз! σ = {self.true_sigma} Н/м")
         else:
-            m_detach = self.burette.last_detach_mass
-            d_detach = self.burette.last_detach_d
-        m_meas = m_detach * (1 + random.uniform(-0.02, 0.02))
-        d_meas = d_detach * (1 + random.uniform(-0.01, 0.01))
-        self.input_m_meas.setText(f"{m_meas*1e6:.2f}")
-        self.input_d_meas.setText(f"{d_meas*1e3:.3f}")
-        # КОТОРМО: Поля заполнены -> Көрсөткүчтөр жазылды (кичине ката менен).
-        self.lbl_feedback.setText("Көрсөткүчтөр жазылды (кичине ката менен).")
-        self._update_ui()
-
-    def check(self):
-        try:
-            m_mg = float(self.input_m_meas.text())
-            d_mm = float(self.input_d_meas.text())
-            sigma_user = float(self.input_sigma_user.text())
-        except Exception:
-            QMessageBox.warning(self, "Ката", "Бардык талааларды толтуруңуз.")
-            return
-        m = m_mg * 1e-6
-        d = d_mm * 1e-3
-        if d <= 0:
-            QMessageBox.information(self, "Маалымат", "d оң сан болушу керек.")
-            return
-        sigma_calc = (m * G) / (math.pi * d)
-        sigma_true = self.burette.sigma_true
-        tol_calc = max(0.03 * abs(sigma_calc), 1e-4)
-        tol_true = max(0.05 * abs(sigma_true), 1e-4)
-        ok_user = abs(sigma_user - sigma_calc) <= tol_calc
-        ok_model = abs(sigma_calc - sigma_true) <= tol_true
-        lines = []
-        if ok_user:
-            lines.append("✅ Сиздин σ эсебиңиз туура.")
-        else:
-            lines.append(f"❌ Сиздин σ эсебиңиз ката. σ_эсеп = {sigma_calc:.6f} Н/м.")
-        if ok_model:
-            lines.append("✅ Чыныгы мааниге жакын.")
-        else:
-            lines.append(f"❌ Чыныгы мааниден айырмаланат: σ = {sigma_true:.6f} Н/м.")
-        self.lbl_feedback.setText("\n".join(lines))
-        self._update_ui()
-
-    def show_answer(self):
-        if self.burette.last_detach_mass is None:
-            m_detach, d_detach = self.burette.simulate_detach_once()
-        else:
-            m_detach = self.burette.last_detach_mass
-            d_detach = self.burette.last_detach_d
-        sigma_calc = (m_detach * G) / (math.pi * d_detach)
-        self.input_m_meas.setText(f"{m_detach*1e6:.2f}")
-        self.input_d_meas.setText(f"{d_detach*1e3:.3f}")
-        self.input_sigma_user.setText(f"{sigma_calc:.6f}")
-        self.lbl_feedback.setText("Туура маанилер көрсөтүлдү.")
-        self._update_ui()
-
-    def random_experiment(self):
-        sigma = random.uniform(0.02, 0.12)
-        d_mm = random.uniform(1.0, 4.0)
-        flow_mg_s = random.uniform(0.01, 0.2)
-        self.input_sigma.setText(f"{sigma:.5f}")
-        self.input_d_mm.setText(f"{d_mm:.3f}")
-        self.input_flow.setText(f"{flow_mg_s:.3f}")
-        self.apply_params()
-        self.burette.simulate_detach_once()
-        self.input_m_meas.clear(); self.input_d_meas.clear(); self.input_sigma_user.clear()
-        self.lbl_feedback.setText("Жаңы тажрыйба даярдалды.")
-        self._update_ui()
-
-    def reset_all(self):
-        self.input_sigma.clear(); self.input_d_mm.clear(); self.input_flow.clear()
-        self.input_m_meas.clear(); self.input_d_meas.clear(); self.input_sigma_user.clear()
-        self.burette.set_params(sigma=0.072, d_nozzle=2e-3, flow_rate=5e-8)
-        self.lbl_feedback.setText("Тазаланды.")
-        self._update_ui()
-
-    def _update_ui(self):
-        if self.burette.last_detach_mass is not None:
-            m = self.burette.last_detach_mass
-            self.mass_meter.set_value(m*1e6, vmax=max(1.0, m*1e6*2))
-            flow = self.burette.flow_rate
-            t_est = m / flow if flow > 1e-12 else 0.0
-            self.time_meter.set_value(t_est, vmax=max(0.1, t_est*1.5))
-        else:
-            self.mass_meter.set_value(0.0, vmax=1.0)
-            self.time_meter.set_value(0.0, vmax=1.0)
-        self.lbl_model.setText(f"Модель: σ={self.burette.sigma_true:.5f} Н/м, d={self.burette.d_nozzle*1e3:.3f} мм")
+            QMessageBox.warning(self, "Ката", f"❌ Туура эмес. σ = {self.true_sigma} Н/м")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     win = LabSurfaceTensionApp()
     win.show()
     sys.exit(app.exec())

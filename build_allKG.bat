@@ -5,23 +5,23 @@ REM labsKG папкасындагы бардык main.py файлдарын чо
 
 setlocal enabledelayedexpansion
 
-echo 🔨 Бардык EXE файлдарды чогултуу башталууда...
+echo 🔨 building exe files...
 echo.
 
 REM Виртуалдык чөйрөнү иштетүү (venv папкасынан)
 if exist ".\venv\Scripts\activate.bat" (
     call .\venv\Scripts\activate.bat
 ) else (
-    echo ❌ Ката: .\venv табылган жок!
+    echo ❌ error: .\venv is not found!
     pause
     exit /b
 )
 
-echo ✅ Виртуалдык чөйрө иштетилди
+echo ✅ venv activated
 
 REM Керектүү пакеттерди орнотуу
-echo 📦 Керектүү компоненттерди орнотуу...
-pip install --quiet pyinstaller pyside6 
+echo 📦 pip installing
+pip install --quiet pyinstaller pyside6 numpy
 
 echo.
 
@@ -42,7 +42,7 @@ for /d %%D in (labsKG\*) do (
     
     REM main.py бар экенин текшерүү
     if exist "!FULL_PATH!\main.py" (
-        echo 🔨 !LAB_NAME! чогултулуп жатат...
+        echo 🔨 !LAB_NAME! building...
         
         REM PyInstaller иштетүү
         pyinstaller ^
@@ -57,10 +57,10 @@ for /d %%D in (labsKG\*) do (
             "!FULL_PATH!\main.py" 2>&1 | find "completed successfully"
         
         if !errorlevel! equ 0 (
-            echo ✅ !LAB_NAME! ийгиликтүү чогултулду
+            echo ✅ !LAB_NAME! success
             set /a BUILT+=1
         ) else (
-            echo ❌ !LAB_NAME! чогултууда ката кетти
+            echo ❌ !LAB_NAME! error
             set /a FAILED+=1
         )
         echo.
@@ -68,12 +68,12 @@ for /d %%D in (labsKG\*) do (
 )
 
 echo ═══════════════════════════════════════════
-echo 📊 Жыйынтык:
-echo ✅ Ийгиликтүү чогултулду: %BUILT%
+echo 📊 result:
+echo ✅ builded successfully: %BUILT%
 if %FAILED% gtr 0 (
-    echo ❌ Каталар: %FAILED%
+    echo ❌ errors: %FAILED%
 )
-echo 📁 EXE файлдар бул папкада жайгашкан: .\dist_kg\
+echo 📁 EXE files in here: .\dist_kg\
 echo ═══════════════════════════════════════════
 echo.
 echo 💡 Эскертүүлөр:

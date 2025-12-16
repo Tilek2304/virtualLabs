@@ -1,170 +1,263 @@
-# lab_mix_water.py
-# Требуется: pip install PySide6
-import sys, random
+import sys
+import random
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QMessageBox, QFrame
+    QPushButton, QLineEdit, QMessageBox, QFrame, QGroupBox
 )
-from PySide6.QtGui import QPainter, QColor, QPen, QFont
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient
+from PySide6.QtCore import Qt, QTimer, QRectF
 
+# ==========================================
+# ВИЗУАЛИЗАЦИЯ: Калориметр
+# ==========================================
 class CalorimeterWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(400, 400)
-        self.hot_volume = 0
-        self.cold_volume = 0
+        self.setMinimumSize(400, 500)
+        self.setStyleSheet("background-color: #fcfcfc; border: 1px solid #ccc; border-radius: 8px;")
+        
+        self.hot_vol = 0
+        self.cold_vol = 0
+        self.current_vol = 0
+        self.target_vol = 0
+        
         self.hot_temp = 0
         self.cold_temp = 0
-        self.final_temp = None
-        self.mixed = False
+        self.final_temp = 0
+        self.current_temp = 20 
+        self.target_temp = 20
+        
+        self.is_mixed = False
+        
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(30)
 
-    def set_params(self, m1,t1,m2,t2):
-        self.hot_volume = m1
+    def set_params(self, m1, t1, m2, t2):
+        self.hot_vol = m1 
         self.hot_temp = t1
-        self.cold_volume = m2
+        self.cold_vol = m2
         self.cold_temp = t2
-        self.final_temp = None
-        self.mixed = False
+        self.is_mixed = False
+        
+        self.current_vol = 0
+        self.target_vol = 0
+        self.current_temp = 20
+        self.target_temp = 20
         self.update()
 
-    def mix(self):
-        if self.hot_volume+self.cold_volume==0:
-            self.final_temp = None
+    def pour_hot(self):
+        self.target_vol = self.hot_vol
+        self.target_temp = self.hot_temp
+        self.is_mixed = False
+
+    def pour_cold(self):
+        self.target_vol = self.cold_vol
+        self.target_temp = self.cold_temp
+        self.is_mixed = False
+
+    def mix_water(self):
+        if self.hot_vol + self.cold_vol == 0: return
+        self.target_vol = self.hot_vol + self.cold_vol
+        self.final_temp = (self.hot_vol*self.hot_temp + self.cold_vol*self.cold_temp) / self.target_vol
+        self.target_temp = self.final_temp
+        self.is_mixed = True
+
+    def animate(self):
+        diff_v = self.target_vol - self.current_vol
+        if abs(diff_v) > 0.5:
+            self.current_vol += diff_v * 0.1
         else:
-            self.final_temp = (self.hot_volume*self.hot_temp + self.cold_volume*self.cold_temp)/(self.hot_volume+self.cold_volume)
-        self.mixed = True
+            self.current_vol = self.target_vol
+            
+        diff_t = self.target_temp - self.current_temp
+        if abs(diff_t) > 0.1:
+            self.current_temp += diff_t * 0.05
+        else:
+            self.current_temp = self.target_temp
+            
         self.update()
 
-    def paintEvent(self,event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        w,h = self.width(), self.height()
-        # сосуд
-        p.setPen(QPen(Qt.black,2))
-        p.setBrush(QColor(220,220,220))
-        p.drawRect(w//4,h//4,w//2,h//2)
-        # вода
-        if self.mixed and self.final_temp is not None:
-            color = QColor(100+int(self.final_temp*2),150,255-int(self.final_temp))
-            p.setBrush(color)
-            p.drawRect(w//4,h//2,w//2,h//4)
-            # термометр
-            p.setPen(QPen(Qt.black,1))
-            p.setFont(QFont("Sans",14))
-            p.drawText(w//2-40,h//2-60,f"T = {self.final_temp:.1f} °C")
-        else:
-            p.setFont(QFont("Sans",12))
-            p.drawText(w//2-60,h//2-20,"Вода не смешана")
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        cx = w // 2
+        
+        # 1. Калориметр
+        cw = 200
+        ch = 250
+        cy = h - 50 - ch
+        
+        # Корпус
+        painter.setBrush(QColor(200, 200, 200))
+        painter.setPen(QPen(Qt.black, 2))
+        painter.drawRect(cx - cw//2 - 10, cy, cw + 20, ch)
+        
+        # Внутренний сосуд
+        painter.setBrush(QColor(240, 240, 255))
+        painter.drawRect(cx - cw//2, cy + 10, cw, ch - 20)
+        
+        # 2. Вода
+        max_vol = 500 
+        if self.current_vol > 0:
+            level_h = (self.current_vol / max_vol) * (ch - 40)
+            if level_h > ch - 20: level_h = ch - 20
+            
+            r = int((self.current_temp / 100.0) * 255)
+            b = 255 - r
+            water_color = QColor(r, 50, b, 180)
+            
+            painter.setBrush(water_color)
+            painter.setPen(Qt.NoPen)
+            water_y = cy + ch - 10 - level_h
+            painter.drawRect(cx - cw//2, water_y, cw, level_h)
+            
+            painter.setPen(QPen(water_color.darker(), 2))
+            painter.drawLine(cx - cw//2, water_y, cx + cw//2, water_y)
 
+        # 3. Термометр
+        th_x = cx + 60
+        th_y = cy - 50
+        th_h = 300
+        th_w = 15
+        
+        painter.setBrush(QColor(255, 255, 255))
+        painter.setPen(QPen(Qt.black, 1))
+        painter.drawRect(th_x, th_y, th_w, th_h)
+        painter.drawEllipse(th_x - 5, th_y + th_h - 10, 25, 25) 
+        
+        mercury_h = (self.current_temp / 100.0) * (th_h - 20)
+        painter.setBrush(QColor(255, 0, 0))
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(th_x + 5, th_y + th_h - 10 - mercury_h, 5, mercury_h + 10)
+        painter.drawEllipse(th_x - 5, th_y + th_h - 10, 25, 25)
+        
+        painter.setPen(Qt.black)
+        painter.setFont(QFont("Arial", 12, QFont.Bold))
+        painter.drawText(th_x + 30, th_y + th_h - mercury_h, f"{self.current_temp:.1f}°C")
+
+# ==========================================
+# ГЛАВНОЕ ОКНО
+# ==========================================
 class LabMixApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная — Смешивание горячей и холодной воды")
-        self.setMinimumSize(900,600)
+        self.setWindowTitle("Лабораторная работа №10: Тепловой баланс")
+        self.resize(1000, 600)
+        self.setup_ui()
+        self.new_experiment()
 
+    def setup_ui(self):
         main = QHBoxLayout(self)
-        left = QVBoxLayout(); right = QVBoxLayout()
-        main.addLayout(left,2); main.addLayout(right,1)
 
+        # --- СЛЕВА: Калориметр ---
+        left_group = QGroupBox("Стенд")
+        left_layout = QVBoxLayout()
         self.calorimeter = CalorimeterWidget()
-        left.addWidget(self.calorimeter)
+        left_layout.addWidget(self.calorimeter)
+        left_group.setLayout(left_layout)
+        main.addWidget(left_group, 2)
 
-        right.addWidget(QLabel("<b>Смешивание горячей и холодной воды</b>"))
-        info = QLabel("Введите массы и температуры горячей и холодной воды.\n"
-                      "После смешивания термометр показывает конечную температуру.")
-        info.setWordWrap(True)
-        right.addWidget(info)
+        # --- СПРАВА: Управление ---
+        right_panel = QVBoxLayout()
+        main.addLayout(right_panel, 1)
 
-        self.input_m1 = QLineEdit(); self.input_m1.setPlaceholderText("m1 (г)")
-        self.input_t1 = QLineEdit(); self.input_t1.setPlaceholderText("t1 (°C)")
-        self.input_m2 = QLineEdit(); self.input_m2.setPlaceholderText("m2 (г)")
-        self.input_t2 = QLineEdit(); self.input_t2.setPlaceholderText("t2 (°C)")
-        self.input_t = QLineEdit(); self.input_t.setPlaceholderText("t (°C) — ваш ответ")
-        right.addWidget(self.input_m1)
-        right.addWidget(self.input_t1)
-        right.addWidget(self.input_m2)
-        right.addWidget(self.input_t2)
-        right.addWidget(self.input_t)
+        # 1. Задание
+        task_g = QGroupBox("Задание")
+        task_l = QVBoxLayout()
+        task_l.addWidget(QLabel("1. Изучите параметры горячей и холодной воды."))
+        task_l.addWidget(QLabel("2. Налейте их в калориметр и смешайте."))
+        task_l.addWidget(QLabel("3. Рассчитайте конечную температуру."))
+        task_l.addWidget(QLabel("Формула: T = (m1*t1 + m2*t2) / (m1+m2)"))
+        task_g.setLayout(task_l)
+        right_panel.addWidget(task_g)
 
+        # 2. Параметры
+        param_g = QGroupBox("Дано")
+        param_l = QVBoxLayout()
+        self.lbl_hot = QLabel("Горячая вода: m1=... г, t1=... °C")
+        self.lbl_cold = QLabel("Холодная вода: m2=... г, t2=... °C")
+        
+        param_l.addWidget(self.lbl_hot)
+        param_l.addWidget(self.lbl_cold)
+        param_g.setLayout(param_l)
+        right_panel.addWidget(param_g)
+
+        # 3. Процесс
+        proc_g = QGroupBox("Действия")
+        proc_l = QVBoxLayout()
+        
+        btn_hot = QPushButton("Налить горячую воду")
+        btn_hot.clicked.connect(self.calorimeter.pour_hot)
+        
+        btn_cold = QPushButton("Налить холодную воду")
+        btn_cold.clicked.connect(self.calorimeter.pour_cold)
+        
         btn_mix = QPushButton("Смешать")
-        btn_mix.clicked.connect(self.mix)
+        btn_mix.setStyleSheet("background-color: #2196F3; color: white;")
+        btn_mix.clicked.connect(self.calorimeter.mix_water)
+        
+        proc_l.addWidget(btn_hot)
+        proc_l.addWidget(btn_cold)
+        proc_l.addWidget(btn_mix)
+        proc_g.setLayout(proc_l)
+        right_panel.addWidget(proc_g)
+
+        # 4. Ответ
+        ans_g = QGroupBox("Ответ")
+        ans_l = QVBoxLayout()
+        self.in_temp = QLineEdit()
+        self.in_temp.setPlaceholderText("Температура T (°C)")
+        
         btn_check = QPushButton("Проверить")
-        btn_check.clicked.connect(self.check)
-        btn_show = QPushButton("Показать ответ")
-        btn_show.clicked.connect(self.show_answer)
-        btn_random = QPushButton("Случайный эксперимент")
-        btn_random.clicked.connect(self.random_experiment)
-        btn_reset = QPushButton("Сброс")
-        btn_reset.clicked.connect(self.reset)
+        btn_check.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        btn_check.clicked.connect(self.check_answer)
+        
+        btn_new = QPushButton("Новый эксперимент")
+        btn_new.clicked.connect(self.new_experiment)
+        
+        ans_l.addWidget(self.in_temp)
+        ans_l.addWidget(btn_check)
+        ans_l.addWidget(btn_new)
+        ans_g.setLayout(ans_l)
+        right_panel.addWidget(ans_g)
+        
+        right_panel.addStretch(1)
 
-        right.addWidget(btn_mix)
-        right.addWidget(btn_check)
-        right.addWidget(btn_show)
-        right.addWidget(btn_random)
-        right.addWidget(btn_reset)
+    def new_experiment(self):
+        self.m1 = random.randint(50, 200)
+        self.t1 = random.randint(60, 90)
+        self.m2 = random.randint(50, 200)
+        self.t2 = random.randint(10, 30)
+        
+        self.lbl_hot.setText(f"Горячая вода: m1={self.m1} г, t1={self.t1} °C")
+        self.lbl_cold.setText(f"Холодная вода: m2={self.m2} г, t2={self.t2} °C")
+        
+        self.calorimeter.set_params(self.m1, self.t1, self.m2, self.t2)
+        self.in_temp.clear()
 
-        self.lbl_result = QLabel("")
-        right.addWidget(self.lbl_result)
-        right.addStretch(1)
-
-        self.random_experiment()
-
-    def mix(self):
+    def check_answer(self):
+        if not self.calorimeter.is_mixed:
+            QMessageBox.warning(self, "Ошибка", "Сначала смешайте воду!")
+            return
+            
         try:
-            m1 = float(self.input_m1.text())
-            t1 = float(self.input_t1.text())
-            m2 = float(self.input_m2.text())
-            t2 = float(self.input_t2.text())
+            u_t = float(self.in_temp.text())
         except:
-            QMessageBox.warning(self,"Ошибка","Введите числовые значения m1,t1,m2,t2.")
+            QMessageBox.warning(self, "Ошибка", "Введите число!")
             return
-        self.calorimeter.set_params(m1,t1,m2,t2)
-        self.calorimeter.mix()
-
-    def check(self):
-        if self.calorimeter.final_temp is None:
-            QMessageBox.information(self,"Инфо","Сначала смешайте воду.")
-            return
-        try:
-            t_user = float(self.input_t.text())
-        except:
-            QMessageBox.warning(self,"Ошибка","Введите ваш ответ t.")
-            return
-        t_true = self.calorimeter.final_temp
-        tol = 0.5
-        if abs(t_user-t_true)<=tol:
-            self.lbl_result.setText("✅ Ответ верный.")
+            
+        real_t = self.calorimeter.final_temp
+        
+        if abs(u_t - real_t) < 0.5:
+            QMessageBox.information(self, "Результат", f"✅ ВЕРНО! T ≈ {real_t:.1f} °C")
         else:
-            self.lbl_result.setText(f"❌ Неверно. Правильное t = {t_true:.1f} °C")
+            QMessageBox.warning(self, "Результат", f"❌ ОШИБКА. Правильно: {real_t:.1f} °C")
 
-    def show_answer(self):
-        if self.calorimeter.final_temp is None:
-            QMessageBox.information(self,"Инфо","Сначала смешайте воду.")
-            return
-        self.input_t.setText(f"{self.calorimeter.final_temp:.1f}")
-        self.lbl_result.setText("Показан правильный ответ.")
-
-    def random_experiment(self):
-        m1 = random.randint(50,200)
-        t1 = random.randint(40,90)
-        m2 = random.randint(50,200)
-        t2 = random.randint(5,30)
-        self.input_m1.setText(str(m1))
-        self.input_t1.setText(str(t1))
-        self.input_m2.setText(str(m2))
-        self.input_t2.setText(str(t2))
-        self.calorimeter.set_params(m1,t1,m2,t2)
-
-    def reset(self):
-        self.input_m1.clear(); self.input_t1.clear()
-        self.input_m2.clear(); self.input_t2.clear()
-        self.input_t.clear()
-        self.calorimeter.set_params(0,0,0,0)
-        self.lbl_result.setText("")
-
-if __name__=="__main__":
+if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     win = LabMixApp()
     win.show()
     sys.exit(app.exec())

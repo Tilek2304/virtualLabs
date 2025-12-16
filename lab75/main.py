@@ -1,563 +1,466 @@
-# lab_density.py
-# Требуется: pip install PySide6
 import sys
 import random
 import math
-from statistics import mean, pstdev
+from statistics import mean
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QLineEdit, QMessageBox, QFrame, QSizePolicy,
-    QTableWidget, QTableWidgetItem, QHeaderView
+    QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox, QSplitter
 )
-from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPainterPath
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPainterPath, QLinearGradient, QRadialGradient
 from PySide6.QtCore import Qt, QTimer, QPointF, QRectF
 
-# ---------------------------
-# Виджет мензурки
-# ---------------------------
+# ==========================================
+# 1. МЕНЗУРКА (Измерение объема)
+# ==========================================
 class MenzurkaWidget(QFrame):
-    def __init__(self, total_volume, liquid_volume, divisions, body_volume, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.total_volume = total_volume
-        self.V1 = liquid_volume
-        self.V_body = body_volume
-        self.divisions = divisions
-
-        self.setMinimumSize(320, 420)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
+        self.setMinimumSize(250, 400)
+        self.setStyleSheet("background-color: #fcfcfc; border: 1px solid #ccc; border-radius: 8px;")
+        
         self.phase = 0.0
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.on_timer)
         self.timer.start(30)
+        
+        self.state = 0 
+        self.anim_t = 0.0
+        self.anim_speed = 0.03
+        
+        self.total_volume = 200
+        self.V1 = 100
+        self.V_body = 50
+        self.divisions = 10
 
-        # animation state: 0 up, 1 lowering, 2 down, 3 raising
+    def set_params(self, total_v, v1, v_body):
+        self.total_volume = total_v
+        self.V1 = v1
+        self.V_body = v_body
+        self.divisions = 20 
         self.state = 0
         self.anim_t = 0.0
-        self.anim_speed = 0.02
+        self.update()
 
     def on_timer(self):
-        self.phase += 0.12
-        if self.phase > 2 * math.pi:
-            self.phase -= 2 * math.pi
-        if self.state in (1, 3):
-            self.anim_t += self.anim_speed if self.state == 1 else -self.anim_speed
+        self.phase += 0.15
+        if self.phase > 6.28: self.phase -= 6.28
+        
+        if self.state == 1:
+            self.anim_t += self.anim_speed
             if self.anim_t >= 1.0:
                 self.anim_t = 1.0
                 self.state = 2
+        elif self.state == 3:
+            self.anim_t -= self.anim_speed
             if self.anim_t <= 0.0:
                 self.anim_t = 0.0
                 self.state = 0
         self.update()
 
-    def start_lower(self):
-        if self.state == 0:
-            self.state = 1
-            self.anim_t = 0.0
+    def toggle_immersion(self):
+        if self.state == 0: self.state = 1
+        elif self.state == 2: self.state = 3
 
-    def start_raise(self):
-        if self.state in (1, 2):
-            self.state = 3
-
-    def set_auto(self):
-        if self.state in (0, 3):
-            self.start_lower()
-        elif self.state in (1, 2):
-            self.start_raise()
-
-    def immerse_now(self):
-        # немедленно погрузить тело: установить итоговое состояние
-        self.state = 2
-        self.anim_t = 1.0
-        self.update()
-
-    def current_liquid_volume(self):
-        V2 = self.V1 + self.V_body
-        t = self.anim_t if self.state in (1,2,3) else 0.0
-        return self.V1 + (V2 - self.V1) * t
+    def get_current_volume(self):
+        return self.V1 + self.V_body * self.anim_t
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        w = self.width(); h = self.height()
-        margin = 18
-        cyl_w = int(w * 0.36)
-        cyl_h = int(h * 0.78)
-        cyl_x = margin; cyl_y = margin
+        
+        w, h = self.width(), self.height()
+        cyl_w = int(w * 0.5)
+        cyl_h = int(h * 0.8)
+        cyl_x = int((w - cyl_w) / 2)
+        cyl_y = int(h * 0.1)
 
-        # outer glass
-        painter.setPen(QPen(Qt.black, 2))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(cyl_x, cyl_y, cyl_w, cyl_h, 8, 8)
+        # Стекло
+        grad = QLinearGradient(cyl_x, 0, cyl_x+cyl_w, 0)
+        grad.setColorAt(0, QColor(220, 230, 240, 100))
+        grad.setColorAt(0.5, QColor(255, 255, 255, 150))
+        grad.setColorAt(1, QColor(220, 230, 240, 100))
+        painter.setBrush(grad)
+        painter.setPen(QPen(Qt.gray, 2))
+        painter.drawRect(cyl_x, cyl_y, cyl_w, cyl_h)
 
-        inner_x = cyl_x + 8
-        inner_w = cyl_w - 16
-        inner_y = cyl_y + 8
-        inner_h = cyl_h - 16
-
-        V_current = self.current_liquid_volume()
-        liquid_height = inner_h * (V_current / self.total_volume)
-        liquid_y = inner_y + inner_h - liquid_height
-
-        # liquid path with wave
+        # Жидкость
+        inner_x = cyl_x + 4
+        inner_w = cyl_w - 8
+        inner_y = cyl_y + 4
+        inner_h = cyl_h - 8
+        
+        cur_v = self.get_current_volume()
+        level_h = inner_h * (cur_v / self.total_volume)
+        liquid_top = inner_y + inner_h - level_h
+        
         path = QPainterPath()
-        left = inner_x; right = inner_x + inner_w; bottom = inner_y + inner_h
-        steps = 60
-        wave_ampl = 3.0
-        path.moveTo(left, bottom)
-        for i in range(steps + 1):
-            t = i / steps
-            x = left + t * inner_w
-            phase = self.phase + t * 2 * math.pi
-            y = liquid_y + math.sin(phase) * (wave_ampl * (1 - abs(2*t-1)))
+        path.moveTo(inner_x, inner_y + inner_h)
+        path.lineTo(inner_x, liquid_top)
+        for i in range(21):
+            t = i / 20
+            x = inner_x + t * inner_w
+            y = liquid_top + math.sin(self.phase + t*10) * 2
             path.lineTo(x, y)
-        path.lineTo(right, bottom)
+        path.lineTo(inner_x + inner_w, inner_y + inner_h)
         path.closeSubpath()
-
+        
+        painter.setBrush(QColor(0, 150, 255, 150))
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(100,150,255,220))
         painter.drawPath(path)
 
-        painter.setPen(QPen(QColor(40,80,160,200), 1))
-        painter.drawLine(left, liquid_y, right, liquid_y)
-
-        # divisions (smaller font)
+        # Шкала
         painter.setPen(QPen(Qt.black, 1))
-        font_size = max(6, int(w * 0.014))
-        painter.setFont(QFont("Sans", font_size))
+        painter.setFont(QFont("Arial", 8))
         for i in range(self.divisions + 1):
-            t = i / self.divisions
-            y_tick = inner_y + inner_h - t * inner_h
-            if self.divisions >= 10 and i % (self.divisions // 10) == 0:
-                tick_len = 12
-            elif self.divisions >= 5 and i % (self.divisions // 5) == 0:
-                tick_len = 8
-            else:
-                tick_len = 5
-            painter.drawLine(inner_x - tick_len, y_tick, inner_x, y_tick)
-            value = int(round(t * self.total_volume))
-            painter.drawText(inner_x + inner_w + 10, y_tick + 4, f"{value}")
+            val = int(i * (self.total_volume / self.divisions))
+            y = inner_y + inner_h - (i / self.divisions) * inner_h
+            painter.drawLine(inner_x, int(y), inner_x + 10, int(y))
+            if i % 2 == 0:
+                painter.drawText(inner_x + 15, int(y)+4, str(val))
 
-        # body on thread centered
-        body_radius = min(36, int(inner_w * 0.5))
-        top_anchor_x = inner_x + inner_w / 2
-        top_anchor_y = inner_y - 36
-        liquid_top_y = liquid_y
-        top_y = top_anchor_y + 18
-        bottom_y = liquid_top_y + body_radius * 0.6
-        t = self.anim_t if self.state in (1,2,3) else 0.0
-        body_cy = top_y + (bottom_y - top_y) * t
-        body_cx = top_anchor_x
+        # Тело
+        body_r = min(25, inner_w // 4)
+        start_y = inner_y - 30
+        end_y = liquid_top + body_r + 5
+        cur_y = start_y + (end_y - start_y) * self.anim_t
+        cur_x = inner_x + inner_w / 2
+        
         painter.setPen(QPen(Qt.black, 1))
-        painter.drawLine(top_anchor_x, top_anchor_y, body_cx, body_cy - body_radius)
-        painter.setBrush(QColor(180,80,80))
-        painter.setPen(QPen(Qt.black,1))
-        painter.drawEllipse(QPointF(body_cx, body_cy), body_radius, body_radius)
-        painter.setPen(QPen(Qt.white,1))
-        painter.setFont(QFont("Sans", 9, QFont.Bold))
-        painter.drawText(body_cx - 18, body_cy + 4, "тело")
+        painter.drawLine(int(cur_x), int(cyl_y - 20), int(cur_x), int(cur_y))
+        
+        painter.setBrush(QColor(100, 100, 100)) 
+        painter.drawEllipse(QPointF(cur_x, cur_y), body_r, body_r)
 
-        # info panel
-        info_x = inner_x + inner_w + 12
-        info_y = inner_y + 6
-        painter.setPen(QPen(Qt.black,1))
-        painter.setFont(QFont("Sans", 10))
-        painter.drawText(info_x, info_y + 0, f"Полный объём: {self.total_volume} мл")
-        painter.drawText(info_x, info_y + 18, f"Делений: {self.divisions}")
-        painter.drawText(info_x, info_y + 36, f"V1 (показан): {self.V1:.1f} мл")
-        if self.state in (1,2,3) or self.anim_t > 0:
-            V2 = self.V1 + self.V_body
-            painter.drawText(info_x, info_y + 54, f"V2 (итог): {V2:.1f} мл")
-        else:
-            painter.drawText(info_x, info_y + 54, f"V2 (итог): —")
-
-# ---------------------------
-# Простейшие весы с перетаскиванием гирь
-# ---------------------------
-class Weight:
-    def __init__(self, mass, pos):
+# ==========================================
+# 2. ВЕСЫ (Измерение массы)
+# ==========================================
+class WeightItem:
+    def __init__(self, mass, x, y, is_body=False):
         self.mass = mass
-        self.pos = QPointF(pos)
-        self.r = 12
+        self.pos = QPointF(x, y)
+        self.r = 12 + mass / 20
+        if self.r > 25: self.r = 25
+        self.is_body = is_body
         self.dragging = False
-        self.on_plate = None  # 'left' or 'right' or None
+        self.on_plate = None
 
 class ScalesWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(320, 260)
-        self.center = QPointF(160, 80)
-        self.beam_length = 220
-        self.beam_angle = 0.0
+        self.setMinimumSize(350, 300)
+        self.setStyleSheet("background-color: #fcfcfc; border: 1px solid #ccc; border-radius: 8px;")
+        
+        self.center = QPointF(175, 100)
+        self.beam_len = 240
+        self.angle = 0.0
         self.target_angle = 0.0
-        self.plate_radius = 28
-        self.weights = []
+        self.items = []
         self.dragged = None
+        
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate)
-        self.timer.start(30)
-        self._create_default_weights()
+        self.timer.start(20)
+        
+        self.init_weights()
 
-    def _create_default_weights(self):
-        self.weights = []
-        masses = [1,2,5,10,20,50]
-        x0 = 260; y0 = 20
-        for i,m in enumerate(masses):
-            w = Weight(mass=m, pos=QPointF(x0, y0 + i*34))
-            self.weights.append(w)
-        # unknown mass on left plate
-        unknown_mass = random.choice([12,18,24,30,36])
-        unk = Weight(mass=unknown_mass, pos=self.plate_center('left'))
-        unk.on_plate = 'left'
-        self.weights.append(unk)
+    def init_weights(self):
+        self.items = []
+        # Гири
+        masses = [5, 10, 20, 20, 50, 100]
+        start_x = 20
+        start_y = 250
+        for i, m in enumerate(masses):
+            self.items.append(WeightItem(m, start_x + i * 35, start_y))
+            
+        # Неизвестное тело
+        self.unknown_body = WeightItem(50, 0, 0, is_body=True)
+        self.unknown_body.on_plate = 'left'
+        self.items.append(self.unknown_body)
+        self.update_layout()
 
-    def plate_center(self, side):
-        angle = self.beam_angle
-        if side == 'left':
-            offset_x = -self.beam_length/2
-        else:
-            offset_x = self.beam_length/2
-        ox, oy = offset_x, 0
-        rx = ox * math.cos(angle) - oy * math.sin(angle)
-        ry = ox * math.sin(angle) + oy * math.cos(angle)
+    def set_body_mass(self, mass):
+        self.unknown_body.mass = mass
+        for item in self.items:
+            if not item.is_body:
+                item.on_plate = None
+                item.pos.setY(250)
+        
+        self.unknown_body.on_plate = 'left'
+        self.angle = 0.0
+        self.update_layout()
+
+    def get_plate_pos(self, side):
+        offset = -self.beam_len/2 if side == 'left' else self.beam_len/2
+        rx = offset * math.cos(self.angle)
+        ry = offset * math.sin(self.angle)
         return QPointF(self.center.x() + rx, self.center.y() + ry + 80)
+
+    def update_layout(self):
+        left_p = self.get_plate_pos('left')
+        right_p = self.get_plate_pos('right')
+        
+        l_items = [i for i in self.items if i.on_plate == 'left' and not i.dragging]
+        r_items = [i for i in self.items if i.on_plate == 'right' and not i.dragging]
+        
+        for k, item in enumerate(l_items):
+            item.pos = QPointF(left_p.x(), left_p.y() - 10 - k*15)
+        for k, item in enumerate(r_items):
+            item.pos = QPointF(right_p.x(), right_p.y() - 10 - k*15)
+
+    def animate(self):
+        m_l = sum(i.mass for i in self.items if i.on_plate == 'left')
+        m_r = sum(i.mass for i in self.items if i.on_plate == 'right')
+        diff = m_r - m_l
+        self.target_angle = max(-0.3, min(0.3, diff / 100))
+        
+        delta = self.target_angle - self.angle
+        self.angle += delta * 0.1
+        self.update_layout()
+        self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor(250,250,250))
-        painter.setPen(QPen(Qt.black,2))
-        painter.setBrush(QColor(200,200,200))
-        base_rect = QRectF(self.center.x()-10, self.center.y()+40, 20, 60)
-        painter.drawRoundedRect(base_rect,4,4)
+        
+        # Стойка
+        painter.setBrush(QColor(200, 200, 200))
+        painter.drawRect(int(self.center.x())-5, int(self.center.y()), 10, 150)
+        painter.drawRect(int(self.center.x())-40, int(self.center.y())+150, 80, 10)
+        
+        # Балка
         painter.save()
         painter.translate(self.center)
-        painter.rotate(math.degrees(self.beam_angle))
-        painter.setPen(QPen(Qt.black,3))
-        painter.setBrush(QColor(220,220,240))
-        beam_rect = QRectF(-self.beam_length/2, -6, self.beam_length, 12)
-        painter.drawRoundedRect(beam_rect,6,6)
-        painter.setPen(QPen(Qt.black,1))
-        painter.drawLine(0,-10,0,10)
+        painter.rotate(math.degrees(self.angle))
+        painter.setBrush(QColor(150, 150, 180))
+        painter.drawRect(int(-self.beam_len/2), -5, int(self.beam_len), 10)
         painter.restore()
-        left_center = self.plate_center('left')
-        right_center = self.plate_center('right')
-        painter.setPen(QPen(Qt.black,2))
-        painter.setBrush(QColor(240,240,240))
-        painter.drawEllipse(left_center, self.plate_radius, 10)
-        painter.drawEllipse(right_center, self.plate_radius, 10)
-        left_attach = self._beam_point(-self.beam_length/2)
-        right_attach = self._beam_point(self.beam_length/2)
-        painter.setPen(QPen(Qt.black,1))
-        painter.drawLine(left_attach, QPointF(left_center.x(), left_center.y()-10))
-        painter.drawLine(right_attach, QPointF(right_center.x(), right_center.y()-10))
-        for w in self.weights:
-            pos = w.pos
-            painter.setBrush(QColor(0,0,0,30))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(QPointF(pos.x()+2,pos.y()+3), w.r+3, w.r+3)
-            painter.setBrush(QColor(200,120,60))
-            painter.setPen(QPen(Qt.black,1))
-            painter.drawEllipse(pos, w.r, w.r)
-            painter.setPen(QPen(Qt.black,1))
-            painter.setFont(QFont("Sans",9))
-            painter.drawText(pos.x()-10, pos.y()+4, f"{w.mass}g")
-            if w.on_plate:
-                painter.setPen(QPen(QColor(40,120,200),1))
-                painter.drawEllipse(pos, w.r+2, w.r+2)
+        
+        # Чаши
+        self.draw_plate(painter, 'left')
+        self.draw_plate(painter, 'right')
+        
+        # Грузы
+        for item in self.items:
+            painter.setPen(Qt.black)
+            if item.is_body:
+                painter.setBrush(QColor(100, 100, 100)) 
+            else:
+                painter.setBrush(QColor(255, 215, 0))
+            
+            painter.drawEllipse(item.pos, item.r, item.r)
+            if not item.is_body:
+                painter.drawText(item.pos.x()-10, item.pos.y()+5, str(item.mass))
 
-    def _beam_point(self, x_local):
-        angle = self.beam_angle
-        ox, oy = x_local, 0
-        rx = ox * math.cos(angle) - oy * math.sin(angle)
-        ry = ox * math.sin(angle) + oy * math.cos(angle)
-        return QPointF(self.center.x() + rx, self.center.y() + ry)
+    def draw_plate(self, painter, side):
+        pt = self.get_plate_pos(side)
+        offset = -self.beam_len/2 if side == 'left' else self.beam_len/2
+        top_x = self.center.x() + offset * math.cos(self.angle)
+        top_y = self.center.y() + offset * math.sin(self.angle)
+        painter.drawLine(int(top_x), int(top_y), int(pt.x()), int(pt.y()))
+        painter.setBrush(QColor(230, 230, 230))
+        painter.drawChord(int(pt.x()-30), int(pt.y()-10), 60, 40, 180*16, 180*16)
 
     def mousePressEvent(self, event):
-        p = event.position()
-        for w in reversed(self.weights):
-            if (w.pos - p).manhattanLength() <= w.r + 4:
-                w.dragging = True
-                self.dragged = w
+        for item in reversed(self.items):
+            if (item.pos - event.position()).manhattanLength() < item.r + 5:
+                item.dragging = True
+                self.dragged = item
                 return
-
+    
     def mouseMoveEvent(self, event):
-        if not self.dragged:
-            return
-        p = event.position()
-        x = max(10, min(self.width()-10, p.x()))
-        y = max(10, min(self.height()-10, p.y()))
-        self.dragged.pos = QPointF(x,y)
-        self.dragged.on_plate = None
-        self.update()
-
-    def mouseReleaseEvent(self, event):
-        if not self.dragged:
-            return
-        left_center = self.plate_center('left')
-        right_center = self.plate_center('right')
-        d_left = (self.dragged.pos - left_center).manhattanLength()
-        d_right = (self.dragged.pos - right_center).manhattanLength()
-        if d_left <= self.plate_radius + 8:
-            self.dragged.pos = QPointF(left_center.x(), left_center.y()-6)
-            self.dragged.on_plate = 'left'
-        elif d_right <= self.plate_radius + 8:
-            self.dragged.pos = QPointF(right_center.x(), right_center.y()-6)
-            self.dragged.on_plate = 'right'
-        else:
+        if self.dragged:
+            self.dragged.pos = event.position()
             self.dragged.on_plate = None
-        self.dragged.dragging = False
-        self.dragged = None
-        self._recompute_target_angle()
-        self.update()
+    
+    def mouseReleaseEvent(self, event):
+        if self.dragged:
+            l_p = self.get_plate_pos('left')
+            r_p = self.get_plate_pos('right')
+            p = self.dragged.pos
+            
+            if (p - l_p).manhattanLength() < 50: self.dragged.on_plate = 'left'
+            elif (p - r_p).manhattanLength() < 50: self.dragged.on_plate = 'right'
+            else: self.dragged.on_plate = None
+            
+            self.dragged.dragging = False
+            self.dragged = None
 
-    def _recompute_target_angle(self):
-        m_left = sum(w.mass for w in self.weights if w.on_plate == 'left')
-        m_right = sum(w.mass for w in self.weights if w.on_plate == 'right')
-        diff = m_right - m_left
-        max_angle = math.radians(10)
-        self.target_angle = max(-max_angle, min(max_angle, diff / 120.0))
-
-    def animate(self):
-        da = self.target_angle - self.beam_angle
-        if abs(da) > 0.0005:
-            self.beam_angle += da * 0.18
-            self.beam_angle += 0.001 * math.sin(self.target_angle * 10)
-            self.update()
-
-    def sum_masses(self):
-        sum_left = sum(w.mass for w in self.weights if w.on_plate == 'left')
-        sum_right = sum(w.mass for w in self.weights if w.on_plate == 'right')
-        return sum_left, sum_right
-
-    def reset(self):
-        self._create_default_weights()
-        self.beam_angle = 0.0
-        self.target_angle = 0.0
-        self.update()
-
-# ---------------------------
-# Главное приложение
-# ---------------------------
+# ==========================================
+# 3. ГЛАВНОЕ ОКНО
+# ==========================================
 class LabDensityApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная — Плотность твёрдых тел")
-        # увеличиваем минимальный размер окна в 1.5 раза
-        self.setMinimumSize(1650, 900)
+        self.setWindowTitle("Лабораторная работа №5: Плотность тела")
+        self.resize(1100, 700)
+        
+        self.materials = {
+            "дуб": 0.7,
+            "алюминий": 2.7,
+            "железо": 7.8,
+            "медь": 8.9,
+            "свинец": 11.3
+        }
+        self.current_material = ""
+        self.true_mass = 0
+        self.true_vol = 0
+        
+        self.setup_ui()
+        self.new_experiment()
 
-        self._generate_experiment()
-
-        main_layout = QHBoxLayout(self)
-        left_col = QVBoxLayout()
-        right_col = QVBoxLayout()
-        main_layout.addLayout(left_col, 1)
-        main_layout.addLayout(right_col, 0)
-
-        # визуализация: мензурка и весы
-        self.menzurka = MenzurkaWidget(
-            total_volume=self.V_total,
-            liquid_volume=self.V1,
-            divisions=self.N,
-            body_volume=self.V_body
-        )
+    def setup_ui(self):
+        main = QHBoxLayout(self)
+        
+        # Левая часть
+        left_area = QWidget()
+        left_layout = QVBoxLayout(left_area)
+        
+        scale_group = QGroupBox("1. Измерение массы (Весы)")
+        sl = QVBoxLayout()
         self.scales = ScalesWidget()
+        sl.addWidget(self.scales)
+        scale_group.setLayout(sl)
+        
+        menz_group = QGroupBox("2. Измерение объема (Мензурка)")
+        ml = QVBoxLayout()
+        self.menzurka = MenzurkaWidget()
+        self.btn_immerse = QPushButton("Опустить / Поднять")
+        self.btn_immerse.clicked.connect(self.menzurka.toggle_immersion)
+        ml.addWidget(self.menzurka)
+        ml.addWidget(self.btn_immerse)
+        menz_group.setLayout(ml)
+        
+        left_layout.addWidget(scale_group, 1)
+        left_layout.addWidget(menz_group, 1)
+        main.addWidget(left_area, 1)
 
-        left_col.addWidget(self.menzurka, 2)
-        left_col.addWidget(self.scales, 1)
-
-        # правая панель управления
-        right_col.addWidget(QLabel("<b>Плотность твёрдых тел</b>"))
-        info = QLabel("Определите плотность тела: измерьте массу m на весах и объём V по мензурке.\n"
-                      "Вводите m, V и вычисленную плотность ρ = m / V (г/мл).")
-        info.setWordWrap(True)
-        right_col.addWidget(info)
-
-        # показ текущих измерений
-        self.lbl_current = QLabel("m_left = 0 g\nV_current = 0.0 мл")
-        right_col.addWidget(self.lbl_current)
-
-        # поля ввода
-        right_col.addSpacing(6)
-        right_col.addWidget(QLabel("<b>Ввод результатов</b>"))
-        self.input_m = QLineEdit(); self.input_m.setPlaceholderText("Введите m, г")
-        self.input_V = QLineEdit(); self.input_V.setPlaceholderText("Введите V, мл")
-        self.input_rho = QLineEdit(); self.input_rho.setPlaceholderText("Введите ρ = m / V, г/мл")
-        right_col.addWidget(self.input_m)
-        right_col.addWidget(self.input_V)
-        right_col.addWidget(self.input_rho)
-
-        # кнопки
-        btn_update = QPushButton("Обновить значения")
-        btn_update.clicked.connect(self.update_values)
-        btn_check = QPushButton("Проверить")
-        btn_check.clicked.connect(self.check_answers)
-        btn_show = QPushButton("Показать ответ")
-        btn_show.clicked.connect(self.show_answer)
-        btn_add = QPushButton("Добавить в таблицу")
-        btn_add.clicked.connect(self.add_to_table)
-        btn_reset = QPushButton("Сброс эксперимента")
-        btn_reset.clicked.connect(self.reset_experiment)
-        btn_random = QPushButton("Случайный эксперимент")
-        btn_random.clicked.connect(self.random_experiment)
-        # новая кнопка: Погрузить тело
-        btn_immerse = QPushButton("Погрузить тело")
-        btn_immerse.clicked.connect(self.immerse_body_now)
-
-        right_col.addWidget(btn_update)
-        right_col.addWidget(btn_check)
-        right_col.addWidget(btn_show)
-        right_col.addWidget(btn_add)
-        right_col.addWidget(btn_random)
-        right_col.addWidget(btn_reset)
-        right_col.addWidget(btn_immerse)
-
-        # результат
-        self.lbl_result = QLabel("")
-        self.lbl_result.setWordWrap(True)
-        right_col.addWidget(self.lbl_result)
-
-        # таблица измерений
-        right_col.addSpacing(8)
-        right_col.addWidget(QLabel("<b>Таблица измерений</b>"))
+        # Правая часть
+        right_area = QWidget()
+        right_layout = QVBoxLayout(right_area)
+        
+        task_g = QGroupBox("Задание")
+        task_l = QVBoxLayout()
+        task_l.addWidget(QLabel("1. Найдите массу тела (m) на весах."))
+        task_l.addWidget(QLabel("2. Найдите объем тела (V) в мензурке."))
+        task_l.addWidget(QLabel("3. Вычислите плотность: ρ = m / V."))
+        task_g.setLayout(task_l)
+        right_layout.addWidget(task_g)
+        
+        inp_g = QGroupBox("Ввод данных")
+        inp_l = QVBoxLayout()
+        self.in_m = QLineEdit(); self.in_m.setPlaceholderText("Масса m (г)")
+        self.in_v = QLineEdit(); self.in_v.setPlaceholderText("Объем V (мл)")
+        self.in_rho = QLineEdit(); self.in_rho.setPlaceholderText("Плотность ρ (г/мл)")
+        
+        inp_l.addWidget(QLabel("Масса (m):"))
+        inp_l.addWidget(self.in_m)
+        inp_l.addWidget(QLabel("Объем (V):"))
+        inp_l.addWidget(self.in_v)
+        inp_l.addWidget(QLabel("Плотность (ρ):"))
+        inp_l.addWidget(self.in_rho)
+        inp_g.setLayout(inp_l)
+        right_layout.addWidget(inp_g)
+        
+        btn_check = QPushButton("Проверить и Записать")
+        btn_check.setStyleSheet("background-color: #4CAF50; color: white;")
+        btn_check.clicked.connect(self.check_and_add)
+        
+        btn_new = QPushButton("Новый эксперимент")
+        btn_new.clicked.connect(self.new_experiment)
+        
+        right_layout.addWidget(btn_check)
+        right_layout.addWidget(btn_new)
+        
         self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["m, г", "V, мл", "ρ, г/мл"])
+        self.table.setHorizontalHeaderLabels(["m (г)", "V (мл)", "ρ (г/мл)"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        right_col.addWidget(self.table)
+        right_layout.addWidget(QLabel("Таблица измерений:"))
+        right_layout.addWidget(self.table)
+        
+        self.lbl_res = QLabel("")
+        right_layout.addWidget(self.lbl_res)
+        
+        main.addWidget(right_area, 1)
 
-        # статистика
-        self.lbl_stats = QLabel("Средняя ρ: —    σ: —")
-        right_col.addWidget(self.lbl_stats)
-        right_col.addStretch(1)
-
-        # таймер обновления
-        self.ui_timer = QTimer(self)
-        self.ui_timer.timeout.connect(self.update_values)
-        self.ui_timer.start(250)
-
-    def _generate_experiment(self):
-        self.V_total = random.randint(200, 800)
-        self.N = random.choice([10,20,50])
-        self.V_body = random.randint(5, max(5, int(self.V_total*0.2)))
-        self.V1 = random.randint(10, max(20, self.V_total - self.V_body - 10))
-
-    def update_values(self):
-        m_left, m_right = self.scales.sum_masses()
-        V_current = self.menzurka.current_liquid_volume()
-        self.lbl_current.setText(f"m_left = {m_left:.1f} g\nV_current = {V_current:.2f} мл")
-
-    def check_answers(self):
+    def new_experiment(self):
+        # 1. Материалды жана тыгыздыкты тандайбыз
+        name, rho = random.choice(list(self.materials.items()))
+        self.current_material = name
+        
+        # 2. Чектөөлөрдү эсептейбиз
+        # а) Масса боюнча чектөө: Гирлердин суммасы 205г, биз 200г ашпайбыз
+        max_vol_by_mass = int(200 / rho)
+        
+        # б) Көлөм боюнча чектөө: Мензурка чоңураак болушу керек (мисалы 250мл)
+        # Нерсе өтө чоң болбошу керек, айталы мензурканын 1/3 бөлүгүнөн ашпасын
+        max_vol_by_size = 80 
+        
+        # Эки чектөөнүн кичинесин алабыз
+        max_vol = min(max_vol_by_mass, max_vol_by_size)
+        
+        # Өтө кичине болуп калбашы үчүн (минималдуу 10 мл)
+        if max_vol < 10: max_vol = 10
+        
+        # 3. Чыныгы маанилерди генерациялоо
+        self.true_vol = random.randint(10, max_vol)
+        self.true_mass = round(self.true_vol * rho, 1)
+        
+        # 4. Виджеттерди жаңылоо
+        self.scales.set_body_mass(self.true_mass)
+        
+        # Мензурканы жөндөө
+        v_total = 250 # Мензурканын көлөмүн 250 мл кылдык (кенен болуш үчүн)
+        
+        # V1 (суунун деңгээли) ташып кетпегидей болушу керек:
+        # V1 + V_body <= V_total - запас (20мл)
+        max_v1 = v_total - self.true_vol - 20
+        min_v1 = 50 # Минималдуу суу
+        
+        if max_v1 < min_v1: max_v1 = min_v1 # Коопсуздук
+        
+        v1 = random.randint(min_v1, max_v1)
+        self.menzurka.set_params(v_total, v1, self.true_vol)
+        
+        # Талааларды тазалоо
+        self.in_m.clear()
+        self.in_v.clear()
+        self.in_rho.clear()
+        self.lbl_res.setText("--- Жаңы тапшырма берилди ---")
+    def check_and_add(self):
         try:
-            user_m = float(self.input_m.text())
-            user_V = float(self.input_V.text())
-            user_rho = float(self.input_rho.text())
-        except Exception:
-            QMessageBox.warning(self, "Ошибка", "Введите числовые значения в поля m, V, ρ.")
+            u_m = float(self.in_m.text())
+            u_v = float(self.in_v.text())
+            u_rho = float(self.in_rho.text())
+        except:
+            QMessageBox.warning(self, "Ошибка", "Введите корректные числа!")
             return
-        true_m, _ = self.scales.sum_masses()
-        true_V = float(self.menzurka.current_liquid_volume())
-        true_rho = true_m / true_V if true_V > 0 else 0.0
-
-        tol_m = max(0.5, true_m * 0.02)
-        tol_V = max(0.5, self.menzurka.total_volume / self.menzurka.divisions)
-        tol_rho = max(0.01, true_rho * 0.03)
-
-        ok_m = abs(user_m - true_m) <= tol_m
-        ok_V = abs(user_V - true_V) <= tol_V
-        ok_rho = abs(user_rho - true_rho) <= tol_rho
-
-        lines = []
-        if ok_m:
-            lines.append("✅ m рассчитано верно.")
+            
+        ok_m = abs(u_m - self.true_mass) <= 5.0 
+        ok_v = abs(u_v - self.true_vol) <= 5.0  
+        
+        true_rho = self.true_mass / self.true_vol
+        ok_rho = abs(u_rho - true_rho) <= 1.0
+        
+        if ok_m and ok_v and ok_rho:
+            self.lbl_res.setText(f"<span style='color:green'><b>ВЕРНО! Это: {self.current_material.upper()}</b></span>")
+            
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(str(u_m)))
+            self.table.setItem(row, 1, QTableWidgetItem(str(u_v)))
+            self.table.setItem(row, 2, QTableWidgetItem(str(u_rho)))
         else:
-            lines.append(f"❌ m неверно. Правильная m: {true_m:.2f} г (допуск ±{tol_m:.2f} г).")
-        if ok_V:
-            lines.append("✅ V рассчитано верно.")
-        else:
-            lines.append(f"❌ V неверно. Правильное V: {true_V:.2f} мл (допуск ±{tol_V:.2f} мл).")
-        if ok_rho:
-            lines.append("✅ ρ рассчитана верно.")
-        else:
-            lines.append(f"❌ ρ неверно. Правильная ρ: {true_rho:.3f} г/мл (допуск ±{tol_rho:.3f}).")
-        self.lbl_result.setText("\n".join(lines))
-
-    def show_answer(self):
-        true_m, _ = self.scales.sum_masses()
-        true_V = float(self.menzurka.current_liquid_volume())
-        true_rho = true_m / true_V if true_V > 0 else 0.0
-        self.input_m.setText(f"{true_m:.2f}")
-        self.input_V.setText(f"{true_V:.2f}")
-        self.input_rho.setText(f"{true_rho:.4f}")
-        self.lbl_result.setText("Показаны правильные значения.")
-
-    def add_to_table(self):
-        try:
-            m = float(self.input_m.text())
-            V = float(self.input_V.text())
-            rho = float(self.input_rho.text())
-        except Exception:
-            QMessageBox.warning(self, "Ошибка", "Введите числовые значения перед добавлением.")
-            return
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        self.table.setItem(row, 0, QTableWidgetItem(f"{m:.2f}"))
-        self.table.setItem(row, 1, QTableWidgetItem(f"{V:.2f}"))
-        self.table.setItem(row, 2, QTableWidgetItem(f"{rho:.4f}"))
-        self._update_stats()
-
-    def _update_stats(self):
-        vals = []
-        for r in range(self.table.rowCount()):
-            try:
-                rho = float(self.table.item(r,2).text())
-                vals.append(rho)
-            except Exception:
-                pass
-        if vals:
-            avg = mean(vals)
-            sigma = pstdev(vals) if len(vals) > 1 else 0.0
-            self.lbl_stats.setText(f"Средняя ρ: {avg:.4f} г/мл    σ: {sigma:.4f}")
-        else:
-            self.lbl_stats.setText("Средняя ρ: —    σ: —")
-
-    def reset_experiment(self):
-        self.menzurka.state = 0
-        self.menzurka.anim_t = 0.0
-        self.scales.reset()
-        self.input_m.clear(); self.input_V.clear(); self.input_rho.clear()
-        self.lbl_result.setText("")
-        self.table.setRowCount(0)
-        self.lbl_stats.setText("Средняя ρ: —    σ: —")
-        self.update_values()
-
-    def random_experiment(self):
-        self._generate_experiment()
-        # recreate widgets with new params
-        parent_layout = self.layout().itemAt(0).layout()
-        left_layout = parent_layout.itemAt(0).layout()
-        while left_layout.count():
-            item = left_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-        self.menzurka = MenzurkaWidget(
-            total_volume=self.V_total,
-            liquid_volume=self.V1,
-            divisions=self.N,
-            body_volume=self.V_body
-        )
-        self.scales = ScalesWidget()
-        left_layout.addWidget(self.menzurka, 2)
-        left_layout.addWidget(self.scales, 1)
-        self.reset_experiment()
-
-    def immerse_body_now(self):
-        # вызывается по кнопке "Погрузить тело"
-        self.menzurka.immerse_now()
-        self.update_values()
+            msg = "ЕСТЬ ОШИБКИ:\n"
+            if not ok_m: msg += f"- Неверная масса (Правильно: {self.true_mass})\n"
+            if not ok_v: msg += f"- Неверный объем (Правильно: {self.true_vol})\n"
+            if not ok_rho: msg += f"- Неверная плотность"
+            QMessageBox.warning(self, "Ошибка", msg)
+            print(true_rho, self.true_mass, self.true_vol)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     win = LabDensityApp()
     win.show()
     sys.exit(app.exec())

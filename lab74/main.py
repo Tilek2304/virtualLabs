@@ -1,85 +1,83 @@
-# lab04_displacement.py
-# Требуется: pip install PySide6
 import sys
 import random
 import math
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QMessageBox, QFrame, QSizePolicy
+    QPushButton, QLineEdit, QMessageBox, QFrame, QGroupBox,
+    QTextEdit, QSizePolicy
 )
-from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPainterPath
-from PySide6.QtCore import Qt, QTimer, QRectF, QPointF
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPainterPath, QLinearGradient, QRadialGradient
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF
 
+# ==========================================
+# ВИЗУАЛИЗАЦИЯ: Мензурка
+# ==========================================
 class MenzurkaWidget(QFrame):
-    """
-    Рисует мензурку с делениями, подписями справа и анимированным уровнем жидкости.
-    Поддерживает опускание/подъём тела на нитке и плавную анимацию мениска.
-    """
-    def __init__(self, total_volume, liquid_volume, divisions, body_volume, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.total_volume = total_volume
-        self.V1 = liquid_volume
-        self.V_body = body_volume
-        self.divisions = divisions
+        self.setMinimumSize(350, 500)
+        self.setStyleSheet("background-color: #f4f4f4; border: 1px solid #aaa; border-radius: 8px;")
 
-        self.setMinimumSize(300, 520)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # Анимация уровня
+        # Параметры анимации
         self.phase = 0.0
-        self.amp_px = 3.0
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.on_timer)
-        self.timer.start(30)  # ~33 FPS
+        self.timer.start(30) # 30 мс
 
-        # Animation state: 0 = body up, 1 = lowering, 2 = body down, 3 = raising
+        # Состояние (0 = вверху, 1 = опускается, 2 = внизу, 3 = поднимается)
         self.state = 0
-        self.anim_t = 0.0  # interpolation 0..1
+        self.anim_t = 0.0 # 0.0 ... 1.0 (интерполяция)
         self.anim_speed = 0.02
 
-        # Precompute pixel mapping later in paintEvent
-        self._cached_inner = None
+        self.generate_parameters()
+
+    def generate_parameters(self):
+        """Генерация новых параметров эксперимента"""
+        self.V_total = random.randint(200, 500)
+        self.divisions = random.choice([10, 20, 25])
+        
+        # Объём тела (чтобы помещалось)
+        max_body = int(self.V_total * 0.3)
+        self.V_body = random.randint(20, max_body)
+        
+        # Начальный объём жидкости
+        max_liquid = self.V_total - self.V_body - 10
+        self.V1 = random.randint(30, max_liquid)
+        
+        # Сброс анимации
+        self.state = 0
+        self.anim_t = 0.0
+        self.update()
 
     def on_timer(self):
-        self.phase += 0.12
+        # Волна на поверхности
+        self.phase += 0.15
         if self.phase > 2 * math.pi:
             self.phase -= 2 * math.pi
 
-        # animate lowering/raising
-        if self.state in (1, 3):
-            self.anim_t += self.anim_speed if self.state == 1 else -self.anim_speed
+        # Движение тела
+        if self.state == 1: # Опускание
+            self.anim_t += self.anim_speed
             if self.anim_t >= 1.0:
                 self.anim_t = 1.0
-                self.state = 2  # reached bottom
+                self.state = 2
+        elif self.state == 3: # Поднятие
+            self.anim_t -= self.anim_speed
             if self.anim_t <= 0.0:
                 self.anim_t = 0.0
-                self.state = 0  # reached top
+                self.state = 0
+        
         self.update()
 
     def start_lower(self):
-        if self.state == 0:
-            self.state = 1
-            self.anim_t = 0.0
-
+        if self.state == 0: self.state = 1
+    
     def start_raise(self):
-        if self.state in (1, 2):
-            self.state = 3
-            if self.anim_t <= 0.0:
-                self.anim_t = 0.0
+        if self.state == 2: self.state = 3
 
-    def set_auto(self):
-        # toggle auto: if up -> lower; if down -> raise
-        if self.state in (0, 3):
-            self.start_lower()
-        elif self.state in (1, 2):
-            self.start_raise()
-
-    def current_liquid_volume(self):
-        # interpolate between V1 and V2 based on anim_t
-        V2 = self.V1 + self.V_body
-        t = self.anim_t if self.state in (1,2,3) else 0.0
-        # if raising, anim_t decreases; current t already reflects that
-        return self.V1 + (V2 - self.V1) * t
+    def get_current_volume(self):
+        # V_current = V1 + (V_body * t)
+        return self.V1 + self.V_body * self.anim_t
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -87,318 +85,242 @@ class MenzurkaWidget(QFrame):
 
         w = self.width()
         h = self.height()
-        margin = 24
-        cyl_w = int(w * 0.28)
-        cyl_h = int(h * 0.78)
-        cyl_x = margin
-        cyl_y = margin
+        
+        # Размеры цилиндра
+        cyl_w = int(w * 0.4)
+        cyl_h = int(h * 0.8)
+        cyl_x = int((w - cyl_w) / 2)
+        cyl_y = int(h * 0.1)
 
-        # Draw outer glass
-        painter.setPen(QPen(Qt.black, 2))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(cyl_x, cyl_y, cyl_w, cyl_h, 8, 8)
+        # 1. Стекло (Фон)
+        grad_glass = QLinearGradient(cyl_x, 0, cyl_x + cyl_w, 0)
+        grad_glass.setColorAt(0, QColor(220, 230, 240, 100))
+        grad_glass.setColorAt(0.5, QColor(255, 255, 255, 150))
+        grad_glass.setColorAt(1, QColor(220, 230, 240, 100))
+        
+        painter.setPen(QPen(Qt.gray, 2))
+        painter.setBrush(grad_glass)
+        painter.drawRect(cyl_x, cyl_y, cyl_w, cyl_h)
 
-        # Inner area (account for glass thickness)
-        inner_x = cyl_x + 8
-        inner_w = cyl_w - 16
-        inner_y = cyl_y + 8
-        inner_h = cyl_h - 16
+        # 2. Жидкость
+        inner_x = cyl_x + 5
+        inner_w = cyl_w - 10
+        inner_y = cyl_y + 5
+        inner_h = cyl_h - 10
+        
+        current_v = self.get_current_volume()
+        ratio = current_v / self.V_total
+        liquid_h = inner_h * ratio
+        liquid_top_y = inner_y + inner_h - liquid_h
 
-        # Cache inner geometry for mapping
-        self._cached_inner = (inner_x, inner_y, inner_w, inner_h)
-
-        # Compute current liquid height in pixels
-        V_current = self.current_liquid_volume()
-        liquid_height = inner_h * (V_current / self.total_volume)
-        liquid_y = inner_y + inner_h - liquid_height
-
-        # Draw liquid with wavy meniscus
+        # Путь жидкости с волной
         path = QPainterPath()
-        left = inner_x
-        right = inner_x + inner_w
-        bottom = inner_y + inner_h
-        wave_ampl = 4.0
-        steps = 60
-        path.moveTo(left, bottom)
+        path.moveTo(inner_x, inner_y + inner_h) 
+        path.lineTo(inner_x, liquid_top_y)      
+        
+        steps = 20
+        wave_amp = 3
         for i in range(steps + 1):
             t = i / steps
-            x = left + t * inner_w
-            phase = self.phase + t * 2 * math.pi
-            y = liquid_y + math.sin(phase) * (wave_ampl * (1 - abs(2*t-1)))
+            x = inner_x + t * inner_w
+            y = liquid_top_y + math.sin(self.phase + t * 4 * math.pi) * wave_amp
             path.lineTo(x, y)
-        path.lineTo(right, bottom)
+            
+        path.lineTo(inner_x + inner_w, inner_y + inner_h) 
         path.closeSubpath()
 
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(100, 150, 255, 220))
+        painter.setBrush(QColor(0, 150, 255, 180)) 
         painter.drawPath(path)
-
-        # Draw horizontal level line
-        painter.setPen(QPen(QColor(40, 80, 160, 200), 1))
-        painter.drawLine(left, liquid_y, right, liquid_y)
-
-        # Draw divisions and numeric labels to the right
+        
+        # 3. Шкала
         painter.setPen(QPen(Qt.black, 1))
-        # уменьшенный шрифт для подписей делений (в 2 раза меньше)
-        font_size = max(6, int(w * 0.015))  # раньше было int(w * 0.03)
-        font = QFont("Sans", font_size)
+        font = QFont("Arial", 9)
         painter.setFont(font)
+        
         for i in range(self.divisions + 1):
-            t = i / self.divisions
-            y_tick = inner_y + inner_h - t * inner_h
-            # tick length varies
-            if self.divisions >= 10 and i % (self.divisions // 10) == 0:
-                tick_len = 12
-            elif self.divisions >= 5 and i % (self.divisions // 5) == 0:
-                tick_len = 8
-            else:
-                tick_len = 5
-            painter.drawLine(inner_x - tick_len, y_tick, inner_x, y_tick)
-            # numeric label on right (меньший шрифт)
-            value = int(round(t * self.total_volume))
-            painter.drawText(inner_x + inner_w + 12, y_tick + 4, f"{value}")
+            val = int(i * (self.V_total / self.divisions))
+            y_pos = inner_y + inner_h - (i / self.divisions) * inner_h
+            
+            painter.drawLine(inner_x, int(y_pos), inner_x + 15, int(y_pos))
+            painter.drawText(inner_x + 20, int(y_pos) + 5, str(val))
 
-        # Draw base
-        base_w = int(cyl_w * 0.9)
-        base_x = cyl_x + (cyl_w - base_w) // 2
-        base_y = cyl_y + cyl_h + 8
-        painter.setPen(QPen(Qt.black, 2))
-        painter.setBrush(QColor(220, 220, 220))
-        painter.drawRoundedRect(base_x, base_y, base_w, 12, 4, 4)
-
-        # Draw textual info above menzurka
+        # 4. Тело
+        body_r = min(30, inner_w // 3)
+        
+        # Позиция тела
+        fixed_start_y = inner_y + 40
+        end_y = liquid_top_y + body_r + 10 
+        
+        body_y = fixed_start_y + (end_y - fixed_start_y) * self.anim_t
+        body_x = inner_x + inner_w / 2
+        
+        # Нить
         painter.setPen(QPen(Qt.black, 1))
-        painter.setFont(QFont("Sans", max(9, int(w * 0.035)), QFont.Bold))
-        painter.drawText(cyl_x, cyl_y - 8, "мл")
-
-        # Draw body on a thread directly over the menzurka (по центру внутренней области)
-        body_radius = min(40, int(inner_w * 0.6))
-        # anchor point above the menzurka (по центру)
-        top_anchor_x = inner_x + inner_w / 2
-        top_anchor_y = inner_y - 40
-        # compute vertical position of body: when anim_t=0 -> above liquid; anim_t=1 -> submerged center at liquid mid
-        V_current = self.current_liquid_volume()
-        liquid_height_px = inner_h * (V_current / self.total_volume)
-        liquid_top_y = inner_y + inner_h - liquid_height_px
-        # define top and bottom positions
-        top_y = top_anchor_y + 20
-        bottom_y = liquid_top_y + body_radius * 0.6
-        # interpolation by anim_t
-        t = self.anim_t if self.state in (1,2,3) else 0.0
-        body_cy = top_y + (bottom_y - top_y) * t
-        body_cx = top_anchor_x  # центр над мензуркой
-        # draw thread
+        painter.drawLine(int(body_x), int(cyl_y - 20), int(body_x), int(body_y))
+        
+        # Само тело
+        grad_body = QRadialGradient(body_x - 5, body_y - 5, body_r)
+        grad_body.setColorAt(0, QColor(255, 100, 100))
+        grad_body.setColorAt(1, QColor(150, 50, 50))
+        painter.setBrush(grad_body)
         painter.setPen(QPen(Qt.black, 1))
-        painter.drawLine(top_anchor_x, top_anchor_y, body_cx, body_cy - body_radius)
-        # draw body (circle) — рисуем после жидкости, чтобы тело накладывалось на мензурку
-        painter.setBrush(QColor(180, 80, 80))
-        painter.setPen(QPen(Qt.black, 1))
-        painter.drawEllipse(QPointF(body_cx, body_cy), body_radius, body_radius)
-        # label body volume (hidden from student)
-        painter.setPen(QPen(Qt.white, 1))
-        painter.setFont(QFont("Sans", 9, QFont.Bold))
-        painter.drawText(body_cx - 18, body_cy + 4, "тело")
+        painter.drawEllipse(QPointF(body_x, body_y), body_r, body_r)
+        
+        # Подсказки V1, V2
+        if self.state == 2: # Внизу
+             painter.setPen(QPen(Qt.darkGreen, 1, Qt.DashLine))
+             painter.drawLine(inner_x, int(liquid_top_y), inner_x + inner_w, int(liquid_top_y))
+             painter.drawText(inner_x + inner_w + 5, int(liquid_top_y), "V2")
+        elif self.state == 0: # Вверху
+             painter.setPen(QPen(Qt.darkBlue, 1, Qt.DashLine))
+             painter.drawLine(inner_x, int(liquid_top_y), inner_x + inner_w, int(liquid_top_y))
+             painter.drawText(inner_x + inner_w + 5, int(liquid_top_y), "V1")
 
-        # Draw small panel with V_total, N, V1 (shown), V2 hidden until body down
-        info_x = inner_x + inner_w + 12
-        info_y = inner_y + inner_h * 0.02
-        painter.setPen(QPen(Qt.black, 1))
-        painter.setFont(QFont("Sans", 10))
-        painter.drawText(info_x, info_y + 0, f"Полный объём: {self.total_volume} мл")
-        painter.drawText(info_x, info_y + 20, f"Делений: {self.divisions}")
-        painter.drawText(info_x, info_y + 40, f"V1 (показан): {self.V1:.1f} мл")
-        # V2 shown only when body is down (state 2) or during animation
-        if self.state in (1,2,3) or self.anim_t > 0:
-            V2 = self.V1 + self.V_body
-            painter.drawText(info_x, info_y + 60, f"V2 (итог): {V2:.1f} мл")
-        else:
-            painter.drawText(info_x, info_y + 60, f"V2 (итог): —")
-
+# ==========================================
+# ГЛАВНОЕ ОКНО
+# ==========================================
 class Lab04App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная №4 — Метод вытеснения жидкости")
-        self.setMinimumSize(900, 560)
+        self.setWindowTitle("Лабораторная №4: Определение объема")
+        self.resize(1000, 600)
+        self.setup_ui()
 
-        # Generate random experiment parameters
-        self._generate_experiment()
-
-        # Layout
+    def setup_ui(self):
         main_layout = QHBoxLayout(self)
+
+        # --- СЛЕВА: Мензурка ---
+        left_group = QGroupBox("Лабораторный стенд")
         left_layout = QVBoxLayout()
-        right_layout = QVBoxLayout()
-        main_layout.addLayout(left_layout, 1)
-        main_layout.addLayout(right_layout, 0)
+        self.menzurka = MenzurkaWidget()
+        left_layout.addWidget(self.menzurka)
+        
+        # Кнопки движения
+        move_layout = QHBoxLayout()
+        self.btn_lower = QPushButton("Опустить")
+        self.btn_lower.clicked.connect(self.menzurka.start_lower)
+        self.btn_raise = QPushButton("Поднять")
+        self.btn_raise.clicked.connect(self.menzurka.start_raise)
+        
+        move_layout.addWidget(self.btn_lower)
+        move_layout.addWidget(self.btn_raise)
+        left_layout.addLayout(move_layout)
+        
+        left_group.setLayout(left_layout)
+        main_layout.addWidget(left_group, stretch=2)
 
-        # Menzurka widget
-        self.menzurka = MenzurkaWidget(
-            total_volume=self.V_total,
-            liquid_volume=self.V1,
-            divisions=self.N,
-            body_volume=self.V_body
+        # --- СПРАВА: Управление ---
+        right_panel = QVBoxLayout()
+        main_layout.addLayout(right_panel, stretch=1)
+
+        # 1. Задание
+        task_group = QGroupBox("Задание")
+        task_layout = QVBoxLayout()
+        info = QLabel(
+            "1. Запишите начальный объем жидкости (V1).\n"
+            "2. Опустите тело в воду.\n"
+            "3. Определите новый объем (V2).\n"
+            "4. Вычислите объем тела: V = V2 - V1."
         )
-        left_layout.addWidget(self.menzurka, 1)
+        info.setWordWrap(True)
+        task_layout.addWidget(info)
+        task_group.setLayout(task_layout)
+        right_panel.addWidget(task_group)
 
-        # Controls on right
-        lbl_title = QLabel("<b>Опыт: Метод вытеснения жидкости</b>")
-        right_layout.addWidget(lbl_title)
+        # 2. Ввод
+        input_group = QGroupBox("Ввод ответов")
+        input_layout = QVBoxLayout()
+        
+        self.inp_v1 = QLineEdit()
+        self.inp_v1.setPlaceholderText("V1 (мл)")
+        
+        self.inp_v2 = QLineEdit()
+        self.inp_v2.setPlaceholderText("V2 (мл)")
+        
+        self.inp_v = QLineEdit()
+        self.inp_v.setPlaceholderText("V = V2 - V1")
+        
+        input_layout.addWidget(QLabel("Начальный объем (V1):"))
+        input_layout.addWidget(self.inp_v1)
+        input_layout.addWidget(QLabel("Конечный объем (V2):"))
+        input_layout.addWidget(self.inp_v2)
+        input_layout.addWidget(QLabel("Объем тела (V):"))
+        input_layout.addWidget(self.inp_v)
+        
+        input_group.setLayout(input_layout)
+        right_panel.addWidget(input_group)
 
-        self.lbl_instructions = QLabel(
-            "Опустите тело в мензурку и по разнице уровней определите объём тела.\n"
-            "Вводите V1, V2 и V = V2 - V1 в миллилитрах."
-        )
-        self.lbl_instructions.setWordWrap(True)
-        right_layout.addWidget(self.lbl_instructions)
+        # 3. Кнопки
+        ctrl_group = QGroupBox("Управление")
+        ctrl_layout = QVBoxLayout()
+        
+        self.btn_check = QPushButton("Проверить")
+        self.btn_check.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; height: 35px;")
+        self.btn_check.clicked.connect(self.check_answer)
+        
+        self.btn_new = QPushButton("Новое задание")
+        self.btn_new.clicked.connect(self.new_task)
+        
+        ctrl_layout.addWidget(self.btn_check)
+        ctrl_layout.addWidget(self.btn_new)
+        ctrl_group.setLayout(ctrl_layout)
+        right_panel.addWidget(ctrl_group)
 
-        # Buttons for animation
-        btn_lower = QPushButton("Опустить")
-        btn_lower.clicked.connect(self.menzurka.start_lower)
-        btn_raise = QPushButton("Поднять")
-        btn_raise.clicked.connect(self.menzurka.start_raise)
-        btn_auto = QPushButton("Авто")
-        btn_auto.clicked.connect(self.menzurka.set_auto)
-        btn_random = QPushButton("Случайный эксперимент")
-        btn_random.clicked.connect(self._on_random)
-        btn_reset = QPushButton("Сброс")
-        btn_reset.clicked.connect(self._on_reset)
+        # 4. Лог
+        res_group = QGroupBox("Журнал")
+        res_layout = QVBoxLayout()
+        self.txt_log = QTextEdit()
+        self.txt_log.setReadOnly(True)
+        self.txt_log.setStyleSheet("background-color: #f9f9f9; font-family: Consolas;")
+        res_layout.addWidget(self.txt_log)
+        res_group.setLayout(res_layout)
+        right_panel.addWidget(res_group, stretch=1)
 
-        right_layout.addWidget(btn_lower)
-        right_layout.addWidget(btn_raise)
-        right_layout.addWidget(btn_auto)
-        right_layout.addSpacing(6)
-        right_layout.addWidget(btn_random)
-        right_layout.addWidget(btn_reset)
+    def new_task(self):
+        self.menzurka.generate_parameters()
+        self.inp_v1.clear()
+        self.inp_v2.clear()
+        self.inp_v.clear()
+        self.txt_log.append("--- Новое задание получено ---")
 
-        # Input fields
-        right_layout.addSpacing(8)
-        right_layout.addWidget(QLabel("<b>Ввод ответов</b>"))
-        self.input_V1 = QLineEdit()
-        self.input_V1.setPlaceholderText("Введите V1, мл")
-        self.input_V2 = QLineEdit()
-        self.input_V2.setPlaceholderText("Введите V2, мл")
-        self.input_V = QLineEdit()
-        self.input_V.setPlaceholderText("Введите V = V2 - V1, мл")
-        right_layout.addWidget(self.input_V1)
-        right_layout.addWidget(self.input_V2)
-        right_layout.addWidget(self.input_V)
-
-        # Check and show answer
-        btn_check = QPushButton("Проверить")
-        btn_check.clicked.connect(self._on_check)
-        btn_show = QPushButton("Показать ответ")
-        btn_show.clicked.connect(self._on_show)
-        right_layout.addWidget(btn_check)
-        right_layout.addWidget(btn_show)
-
-        # Result label
-        self.lbl_result = QLabel("")
-        self.lbl_result.setWordWrap(True)
-        right_layout.addWidget(self.lbl_result)
-        right_layout.addStretch(1)
-
-        # Timer to update menzurka internal V_current mapping when anim changes
-        self.ui_timer = QTimer(self)
-        self.ui_timer.timeout.connect(self._update_ui)
-        self.ui_timer.start(120)
-
-    def _generate_experiment(self):
-        # total volume 200..800 ml for nicer visuals
-        self.V_total = random.randint(200, 800)
-        self.N = random.choice([10, 20, 50])
-        # choose V1 so that body fits
-        max_body = max(5, int(self.V_total * 0.25))
-        self.V_body = random.randint(5, max_body)
-        # choose V1 between 10 and V_total - V_body - 10
-        self.V1 = random.randint(10, max(20, self.V_total - self.V_body - 10))
-        # price per division
-        self.price = self.V_total / self.N
-
-    def _on_random(self):
-        self._generate_experiment()
-        # recreate menzurka widget with new params
-        parent = self.menzurka.parent()
-        layout = self.menzurka.parent().layout()
-        # replace widget
-        self.menzurka.deleteLater()
-        self.menzurka = MenzurkaWidget(
-            total_volume=self.V_total,
-            liquid_volume=self.V1,
-            divisions=self.N,
-            body_volume=self.V_body
-        )
-        # left layout is index 0 in main layout
-        left_col = self.layout().itemAt(0).layout().itemAt(0).layout()
-        # remove old and add new
-        while left_col.count():
-            item = left_col.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-        left_col.addWidget(self.menzurka, 1)
-
-    def _on_reset(self):
-        # reset animation to initial state
-        self.menzurka.state = 0
-        self.menzurka.anim_t = 0.0
-        self.input_V1.clear()
-        self.input_V2.clear()
-        self.input_V.clear()
-        self.lbl_result.setText("")
-        self.menzurka.update()
-
-    def _update_ui(self):
-        # update shown V1 in menzurka (it uses internal values)
-        # nothing else needed; menzurka repaints itself
-        pass
-
-    def _on_check(self):
+    def check_answer(self):
         try:
-            user_V1 = float(self.input_V1.text())
-            user_V2 = float(self.input_V2.text())
-            user_V = float(self.input_V.text())
-        except Exception:
-            QMessageBox.warning(self, "Ошибка", "Введите числовые значения в поля V1, V2 и V.")
+            u_v1 = float(self.inp_v1.text())
+            u_v2 = float(self.inp_v2.text())
+            u_v = float(self.inp_v.text())
+        except ValueError:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, введите числа во все поля!")
             return
 
-        true_V1 = float(self.V1)
-        true_V2 = float(self.V1 + self.V_body)
-        true_V = float(self.V_body)
-
-        # tolerances
-        tol_level = max(0.5, self.price)  # ±0.5 мл или ±1 цена деления
-        tol_V = max(0.5, true_V * 0.01)   # ±1% или ±0.5 мл
-
-        ok_V1 = abs(user_V1 - true_V1) <= tol_level
-        ok_V2 = abs(user_V2 - true_V2) <= tol_level
-        ok_V = abs(user_V - true_V) <= tol_V
-
-        lines = []
-        if ok_V1:
-            lines.append("✅ V1 рассчитано верно.")
+        # Правильные значения
+        real_v1 = self.menzurka.V1
+        real_v2 = self.menzurka.V1 + self.menzurka.V_body
+        real_v = self.menzurka.V_body
+        
+        # Допуск погрешности (половина цены деления)
+        tolerance = (self.menzurka.V_total / self.menzurka.divisions) / 2
+        
+        is_v1 = abs(u_v1 - real_v1) <= tolerance
+        is_v2 = abs(u_v2 - real_v2) <= tolerance
+        is_v = abs(u_v - real_v) <= tolerance
+        
+        self.txt_log.append(f"Ввод: V1={u_v1}, V2={u_v2}, V={u_v}")
+        
+        if is_v1 and is_v2 and is_v:
+             self.txt_log.append("<span style='color:green'><b>✅ ВСЕ ВЕРНО!</b></span>")
         else:
-            lines.append(f"❌ V1 неверно. Правильное V1: {true_V1:.1f} мл (допуск ±{tol_level:.2f} мл).")
-        if ok_V2:
-            lines.append("✅ V2 рассчитано верно.")
-        else:
-            lines.append(f"❌ V2 неверно. Правильное V2: {true_V2:.1f} мл (допуск ±{tol_level:.2f} мл).")
-        if ok_V:
-            lines.append("✅ Объём тела V рассчитан верно.")
-        else:
-            lines.append(f"❌ Объём тела V неверен. Правильный V: {true_V:.1f} мл (допуск ±{tol_V:.2f} мл).")
-
-        self.lbl_result.setText("\n".join(lines))
-
-    def _on_show(self):
-        true_V1 = float(self.V1)
-        true_V2 = float(self.V1 + self.V_body)
-        true_V = float(self.V_body)
-        self.input_V1.setText(f"{true_V1:.2f}")
-        self.input_V2.setText(f"{true_V2:.2f}")
-        self.input_V.setText(f"{true_V:.2f}")
-        self.lbl_result.setText("Показаны правильные значения.")
+             self.txt_log.append("<span style='color:red'><b>❌ ЕСТЬ ОШИБКИ:</b></span>")
+             if not is_v1: self.txt_log.append(f"V1 неверно (Верно: ~{real_v1})")
+             if not is_v2: self.txt_log.append(f"V2 неверно (Верно: ~{real_v2})")
+             if not is_v: self.txt_log.append(f"V неверно (Верно: ~{real_v})")
+        
+        self.txt_log.append("-" * 20)
+        self.txt_log.verticalScrollBar().setValue(self.txt_log.verticalScrollBar().maximum())
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     win = Lab04App()
     win.show()
     sys.exit(app.exec())

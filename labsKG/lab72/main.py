@@ -1,156 +1,191 @@
-# lab02_katar_method_wide.py
-# Требуется: pip install PySide6
 import sys
 import random
 import math
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QMessageBox, QFrame
+    QPushButton, QLineEdit, QMessageBox, QFrame, QGroupBox,
+    QTextEdit, QSizePolicy, QScrollBar
 )
-from PySide6.QtGui import QPainter, QColor, QPen, QFont
-from PySide6.QtCore import Qt, QTimer, QRectF, QPointF
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QAction
+from PySide6.QtCore import Qt, QTimer, QPointF
 
+# ==========================================
+# ВИЗУАЛИЗАЦИЯ: Сызгыч (Линейка)
+# ==========================================
 class RulerWidget(QFrame):
     def __init__(self, length_mm=200, px_per_mm=2.5, parent=None):
         super().__init__(parent)
         self.length_mm = length_mm
         self.px_per_mm = px_per_mm
         self.setMinimumWidth(int(self.length_mm * self.px_per_mm) + 60)
-        self.setMinimumHeight(120)
+        self.setMinimumHeight(100)
+        self.setStyleSheet("background-color: white; border-bottom: 1px solid #ccc;")
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        w = self.width()
-        h = self.height()
+        
         left = 20
         top = 20
-        # draw ruler body
+        
+        # Сызгычтын корпусу
         painter.setPen(QPen(Qt.black, 2))
-        painter.setBrush(QColor(245, 245, 220))
-        painter.drawRect(left, top, int(self.length_mm * self.px_per_mm), 30)
-        # ticks and labels
+        painter.setBrush(QColor(255, 235, 205)) # жыгач түс
+        painter.drawRect(left, top, int(self.length_mm * self.px_per_mm), 40)
+        
+        # Бөлүктөр жана сандар
         painter.setPen(QPen(Qt.black, 1))
-        font = QFont("Sans", 9)
+        font = QFont("Segoe UI", 8)
         painter.setFont(font)
+        
         for mm in range(0, self.length_mm + 1):
             x = left + mm * self.px_per_mm
             if mm % 10 == 0:
-                painter.drawLine(x, top + 30, x, top + 30 + 14)
-                painter.drawText(x - 12, top + 30 + 32, f"{mm}")
+                # Чоң сызык
+                painter.drawLine(int(x), top + 40, int(x), top + 40 - 15)
+                # Санды жазуу
+                text_rect = painter.fontMetrics().boundingRect(str(mm))
+                painter.drawText(int(x - text_rect.width()/2), top + 15, f"{mm}")
             elif mm % 5 == 0:
-                painter.drawLine(x, top + 30, x, top + 30 + 9)
+                # Орточо сызык
+                painter.drawLine(int(x), top + 40, int(x), top + 40 - 10)
             else:
-                painter.drawLine(x, top + 30, x, top + 30 + 5)
+                # Кичине сызык
+                painter.drawLine(int(x), top + 40, int(x), top + 40 - 5)
 
+# ==========================================
+# ВИЗУАЛИЗАЦИЯ: Шариктер талаасы
+# ==========================================
 class BallsRowWidget(QFrame):
     def __init__(self, ruler_widget: RulerWidget, parent=None):
         super().__init__(parent)
         self.ruler = ruler_widget
-        self.setMinimumSize(700, 260)
+        self.setMinimumSize(700, 200)
+        self.setStyleSheet("background-color: #f0f8ff; border: 1px solid #ccc; border-top: none;")
+        
         self.balls = []
         self.ball_radius = 12
-        self.row_y = 150
+        self.row_y = 100
         self.drag_index = None
+        
+        # Анимация үчүн таймер
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate)
         self.timer.start(30)
+        
         self._create_random_row()
 
     def _create_random_row(self):
-        n = random.randint(6, 12)
+        n = random.randint(6, 15)
         left = 40
-        right = max(self.width() - 40, left + int(self.ruler.length_mm * self.ruler.px_per_mm))
+        # Сызгычтын чегинен чыкпоо
+        max_width = int(self.ruler.length_mm * self.ruler.px_per_mm)
+        right = max(self.width() - 40, max_width)
+        
         spacing = (right - left) / (n + 1)
         self.balls = []
         for i in range(n):
             x = left + (i + 1) * spacing + random.uniform(-10, 10)
-            y = self.row_y + random.uniform(-6, 6)
+            y = self.row_y + random.uniform(-10, 10)
             self.balls.append({'pos': QPointF(x, y), 'r': self.ball_radius, 'target_x': x})
-
-    def resizeEvent(self, event):
-        w = self.width()
-        for b in self.balls:
-            if b['pos'].x() > w - 20:
-                b['pos'].setX(w - 20)
-                b['target_x'] = b['pos'].x()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor(250, 250, 250))
+        
+        # Борбордук сызык (пунктир)
         painter.setPen(QPen(Qt.gray, 1, Qt.DashLine))
         painter.drawLine(10, self.row_y, self.width() - 10, self.row_y)
+        
+        # Шариктерди тартуу
         for i, b in enumerate(self.balls):
             pos = b['pos']
             r = b['r']
+            
+            # Көлөкө
             painter.setBrush(QColor(0, 0, 0, 30))
             painter.setPen(Qt.NoPen)
-            painter.drawEllipse(QPointF(pos.x()+3, pos.y()+5), r+3, r+3)
-            painter.setBrush(QColor(200, 80, 80))
+            painter.drawEllipse(QPointF(pos.x()+2, pos.y()+2), r, r)
+            
+            # Шарик
+            painter.setBrush(QColor(220, 60, 60)) # Кызыл түс
             painter.setPen(QPen(Qt.black, 1))
             painter.drawEllipse(pos, r, r)
-            painter.setPen(QPen(Qt.black, 1))
-            painter.setFont(QFont("Sans", 9))
-            painter.drawText(pos.x()-5, pos.y()+5, str(i+1))
+            
+            # Номери
+            painter.setPen(QPen(Qt.white, 1))
+            painter.setFont(QFont("Segoe UI", 8, QFont.Bold))
+            text = str(i+1)
+            rect = painter.fontMetrics().boundingRect(text)
+            painter.drawText(pos.x() - rect.width()/2, pos.y() + rect.height()/3, text)
+
+        # Өлчөм сызыгын (L) тартуу
         if len(self.balls) >= 2:
             xs = sorted([b['pos'].x() for b in self.balls])
-            left_x = xs[0]
-            right_x = xs[-1]
-            painter.setPen(QPen(QColor(40, 120, 200), 2))
-            painter.drawLine(left_x, self.row_y - 24, right_x, self.row_y - 24)
-            painter.setFont(QFont("Sans", 11, QFont.Bold))
-            painter.drawText((left_x + right_x)/2 - 18, self.row_y - 30, "L")
-            painter.setPen(QPen(QColor(40, 120, 200), 2))
-            painter.drawLine(left_x, self.row_y - 28, left_x, self.row_y - 20)
-            painter.drawLine(right_x, self.row_y - 28, right_x, self.row_y - 20)
+            left_x = xs[0] - self.ball_radius
+            right_x = xs[-1] + self.ball_radius
+            
+            # Эгерде шариктер тыгыз тизилген болсо, L көрсөтөбүз
+            # Бирок студент өзү карашы үчүн так санды жазбайбыз, жөн гана чектерин көрсөтөбүз
+            painter.setPen(QPen(QColor(0, 100, 200), 2))
+            
+            # Сол чек
+            painter.drawLine(int(left_x), self.row_y - 25, int(left_x), self.row_y - 45)
+            # Оң чек
+            painter.drawLine(int(right_x), self.row_y - 25, int(right_x), self.row_y - 45)
+            # Ортосундагы сызык
+            painter.drawLine(int(left_x), self.row_y - 35, int(right_x), self.row_y - 35)
+            
+            painter.setPen(QPen(QColor(0, 100, 200), 1))
+            painter.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            painter.drawText(int((left_x + right_x)/2 - 10), int(self.row_y - 40), "L")
 
+    # Чычкан менен башкаруу (Drag & Drop)
     def mousePressEvent(self, event):
         p = event.position()
         for i, b in enumerate(self.balls):
             if (b['pos'] - p).manhattanLength() <= b['r'] + 6:
                 self.drag_index = i
                 return
-        x = p.x()
-        y = self.row_y
-        self.balls.append({'pos': QPointF(x, y), 'r': self.ball_radius, 'target_x': x})
-        self.update()
 
     def mouseMoveEvent(self, event):
         if self.drag_index is None:
             return
         p = event.position()
-        x = p.x()
-        x = max(20, min(self.width() - 20, x))
+        x = max(20, min(self.width() - 20, p.x()))
         self.balls[self.drag_index]['pos'].setX(x)
-        self.balls[self.drag_index]['pos'].setY(self.row_y)
+        self.balls[self.drag_index]['pos'].setY(self.row_y) # Y боюнча бекитүү
         self.balls[self.drag_index]['target_x'] = x
         self.update()
 
     def mouseReleaseEvent(self, event):
         self.drag_index = None
-        self._snap_to_row()
+        self.snap_to_row() # Автоматтык түздөө
 
-    def _snap_to_row(self):
+    def snap_to_row(self):
+        """Шариктерди бири-бирине тыгыз жайгаштыруу"""
         if len(self.balls) < 2:
             return
+        
+        # X боюнча сорттоо
         self.balls.sort(key=lambda b: b['pos'].x())
-        left = self.balls[0]['pos'].x()
-        right = self.balls[-1]['pos'].x()
-        n = len(self.balls)
-        if right - left < 1:
-            return
-        spacing = (right - left) / (n - 1)
+        
+        # Сол жактагы биринчи шариктин орду
+        start_x = self.balls[0]['pos'].x()
+        
+        # Ар бир шарикти мурункусуна тийгизип жайгаштыруу
+        diameter = self.ball_radius * 2
         for i, b in enumerate(self.balls):
-            b['target_x'] = left + i * spacing
+            b['target_x'] = start_x + i * diameter
 
     def animate(self):
+        """Жумшак кыймыл анимациясы"""
         changed = False
         for b in self.balls:
             tx = b.get('target_x', b['pos'].x())
             dx = tx - b['pos'].x()
             if abs(dx) > 0.5:
-                b['pos'].setX(b['pos'].x() + dx * 0.25)
+                b['pos'].setX(b['pos'].x() + dx * 0.2)
                 changed = True
             else:
                 b['pos'].setX(tx)
@@ -165,176 +200,225 @@ class BallsRowWidget(QFrame):
         self._create_random_row()
         self.update()
 
-    def measured_length_mm(self):
-        if len(self.balls) < 2:
-            return 0.0
-        xs = sorted([b['pos'].x() for b in self.balls])
-        left_x = xs[0]
-        right_x = xs[-1]
-        px_dist = right_x - left_x
-        mm = px_dist / self.ruler.px_per_mm
-        return max(0.0, mm)
+    def get_measurements(self):
+        """Чыныгы маанилерди кайтаруу"""
+        if len(self.balls) < 1:
+            return 0, 0, 0
+        
+        self.balls.sort(key=lambda b: b['pos'].x())
+        
+        # Эсептөө пиксел менен
+        left_edge = self.balls[0]['pos'].x() - self.ball_radius
+        right_edge = self.balls[-1]['pos'].x() + self.ball_radius
+        
+        px_dist = right_edge - left_edge
+        
+        # Миллиметрге которуу
+        mm_L = px_dist / self.ruler.px_per_mm
+        N = len(self.balls)
+        mm_d = mm_L / N
+        return mm_L, N, mm_d
 
-    def count_balls(self):
-        return len(self.balls)
-
+# ==========================================
+# НЕГИЗГИ ТЕРЕЗЕ
+# ==========================================
 class Lab02App(QWidget):
     def __init__(self):
         super().__init__()
-        # КОТОРМО: Катарный метод измерения размеров -> Өлчөмдөрдү катар ыкмасы менен өлчөө
-        self.setWindowTitle("№2 Лабораториялык иш — Өлчөмдөрдү катар ыкмасы менен өлчөө")
-        self.setMinimumSize(1200, 600)
-
-        self.ruler_length_mm = random.choice([150, 200, 250])
+        self.setWindowTitle("Лабораториялык иш №2: Катар ыкмасы")
+        self.resize(1100, 650)
+        
+        self.ruler_length = 250
         self.px_per_mm = 2.5
+        
+        self.setup_ui()
 
+    def setup_ui(self):
         main_layout = QHBoxLayout(self)
+
+        # --- СОЛ ЖАК: Визуализация (Group Box ичинде) ---
+        left_group = QGroupBox("Визуалдык стенд")
         left_layout = QVBoxLayout()
-        right_layout = QVBoxLayout()
-        main_layout.addLayout(left_layout, 1)
-        main_layout.addLayout(right_layout, 0)
-
-        self.ruler = RulerWidget(length_mm=self.ruler_length_mm, px_per_mm=self.px_per_mm)
-        left_layout.addWidget(self.ruler)
-
+        
+        # Сызгыч жана Шариктер
+        self.ruler = RulerWidget(length_mm=self.ruler_length, px_per_mm=self.px_per_mm)
         self.balls_widget = BallsRowWidget(self.ruler)
-        left_layout.addWidget(self.balls_widget, 1)
+        
+        left_layout.addWidget(self.ruler)
+        left_layout.addWidget(self.balls_widget)
+        left_layout.addStretch(1)
+        
+        left_group.setLayout(left_layout)
+        main_layout.addWidget(left_group, stretch=3)
 
-        lbl_title = QLabel("<b>Катар ыкмасы менен өлчөө</b>")
-        right_layout.addWidget(lbl_title)
+        # --- ОҢ ЖАК: Башкаруу панели ---
+        right_panel = QVBoxLayout()
+        main_layout.addLayout(right_panel, stretch=2)
 
-        self.lbl_params = QLabel(
-            f"Длина линейки: <b>{self.ruler_length_mm} мм</b>\n"
-            "Добавляйте шарики кликом, перетаскивайте их мышью.\n"
-            "Нажмите «Выравнять ряд» для аккуратного ряда."
+        # 1. Тапшырма
+        task_group = QGroupBox("Тапшырма")
+        task_layout = QVBoxLayout()
+        
+        info = QLabel(
+            "1. Шариктерди бири-бирине тийгизип тизиңиз ('Түздөө' баскычы).\n"
+            "2. Сызгыч аркылуу жалпы узундукту (L) ченеңиз.\n"
+            "3. Шариктердин санын (N) санаңыз.\n"
+            "4. Бир шариктин диаметрин (d) эсептеңиз: d = L / N."
         )
-        self.lbl_params = QLabel(
-            f"Сызгычтын узундугу: <b>{self.ruler_length_mm} мм</b>\n"
-            "Шарларды чыкылдатуу менен кошуңуз, аларды сүйрөңүз.\n"
-            "Катарды иреттөө үчүн «Катарды түздөө» баскычын басыңыз."
-        )
-        self.lbl_params.setWordWrap(True)
-        right_layout.addWidget(self.lbl_params)
+        info.setWordWrap(True)
+        task_layout.addWidget(info)
+        task_group.setLayout(task_layout)
+        right_panel.addWidget(task_group)
 
-        self.lbl_measured = QLabel("L = 0.0 мм\nN = 0\nd = 0.0 мм")
-        right_layout.addWidget(self.lbl_measured)
-
-        # КОТОРМО: Случайный ряд -> Кокустан тандалган катар
-        btn_random = QPushButton("Кокустан тандалган катар")
-        btn_random.clicked.connect(self.on_random)
+        # 2. Маалымат киргизүү
+        input_group = QGroupBox("Маалыматтарды киргизүү")
+        input_layout = QVBoxLayout()
         
-        # КОТОРМО: Очистить -> Тазалоо
-        btn_clear = QPushButton("Тазалоо")
-        btn_clear.clicked.connect(self.on_clear)
+        self.inp_L = QLineEdit()
+        self.inp_L.setPlaceholderText("Узундук L (мм)")
         
-        # КОТОРМО: Выравнять ряд -> Катарды түздөө
-        btn_snap = QPushButton("Катарды түздөө")
-        btn_snap.clicked.connect(self.on_snap)
+        self.inp_N = QLineEdit()
+        self.inp_N.setPlaceholderText("Саны N (даана)")
         
-        right_layout.addWidget(btn_random)
-        right_layout.addWidget(btn_clear)
-        right_layout.addWidget(btn_snap)
-
-        right_layout.addSpacing(8)
-        # КОТОРМО: Ввод ответов -> Жоопторду киргизүү
-        right_layout.addWidget(QLabel("<b>Жоопторду киргизүү</b>"))
+        self.inp_d = QLineEdit()
+        self.inp_d.setPlaceholderText("Диаметри d (мм)")
         
-        self.input_L = QLineEdit()
-        # КОТОРМО: Введите L -> L маанисин киргизиңиз
-        self.input_L.setPlaceholderText("L маанисин киргизиңиз, мм")
-        self.input_N = QLineEdit()
-        # КОТОРМО: Введите N -> N маанисин киргизиңиз
-        self.input_N.setPlaceholderText("N маанисин киргизиңиз, даана")
-        self.input_d = QLineEdit()
-        self.input_d.setPlaceholderText("d маанисин киргизиңиз, мм (L/N)")
+        input_layout.addWidget(QLabel("Жалпы узундук (L):"))
+        input_layout.addWidget(self.inp_L)
+        input_layout.addWidget(QLabel("Шариктердин саны (N):"))
+        input_layout.addWidget(self.inp_N)
+        input_layout.addWidget(QLabel("Диаметри (d = L/N):"))
+        input_layout.addWidget(self.inp_d)
         
-        right_layout.addWidget(self.input_L)
-        right_layout.addWidget(self.input_N)
-        right_layout.addWidget(self.input_d)
+        input_group.setLayout(input_layout)
+        right_panel.addWidget(input_group)
 
-        # КОТОРМО: Проверить -> Текшерүү
-        btn_check = QPushButton("Текшерүү")
-        btn_check.clicked.connect(self.on_check)
-        # КОТОРМО: Показать ответ -> Жоопту көрсөтүү
-        btn_show = QPushButton("Жоопту көрсөтүү")
-        btn_show.clicked.connect(self.on_show)
+        # 3. Башкаруу баскычтары
+        ctrl_group = QGroupBox("Башкаруу")
+        ctrl_layout = QVBoxLayout()
         
-        right_layout.addWidget(btn_check)
-        right_layout.addWidget(btn_show)
+        self.btn_check = QPushButton("Текшерүү")
+        self.btn_check.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; height: 35px;")
+        self.btn_check.clicked.connect(self.check_answer)
+        
+        h_layout = QHBoxLayout()
+        self.btn_snap = QPushButton("Түздөө")
+        self.btn_snap.clicked.connect(self.on_snap)
+        self.btn_random = QPushButton("Жаңы шариктер")
+        self.btn_random.clicked.connect(self.on_random)
+        
+        h_layout.addWidget(self.btn_snap)
+        h_layout.addWidget(self.btn_random)
+        
+        ctrl_layout.addWidget(self.btn_check)
+        ctrl_layout.addLayout(h_layout)
+        ctrl_group.setLayout(ctrl_layout)
+        right_panel.addWidget(ctrl_group)
 
-        self.lbl_result = QLabel("")
-        self.lbl_result.setWordWrap(True)
-        right_layout.addWidget(self.lbl_result)
-        right_layout.addStretch(1)
+        # 4. Журнал
+        res_group = QGroupBox("Өлчөө журналы")
+        res_layout = QVBoxLayout()
+        self.txt_log = QTextEdit()
+        self.txt_log.setReadOnly(True)
+        self.txt_log.setStyleSheet("background-color: #f9f9f9; font-family: Consolas;")
+        
+        btn_copy = QPushButton("Көчүрүү")
+        btn_copy.clicked.connect(self.copy_log)
+        
+        res_layout.addWidget(self.txt_log)
+        res_layout.addWidget(btn_copy)
+        res_group.setLayout(res_layout)
+        right_panel.addWidget(res_group, stretch=1)
+        
+        # 5. Чыгуу
+        btn_exit = QPushButton("Чыгуу")
+        btn_exit.setStyleSheet("background-color: #f44336; color: white;")
+        btn_exit.clicked.connect(self.close)
+        right_panel.addWidget(btn_exit)
 
-        self.update_timer = QTimer(self)
-        self.update_timer.timeout.connect(self.update_measured)
-        self.update_timer.start(200)
-
+    # --- ЛОГИКА ---
     def on_random(self):
         self.balls_widget.randomize()
-
-    def on_clear(self):
-        self.balls_widget.clear()
+        self.clear_inputs()
+        self.txt_log.append("--- Жаңы шариктер берилди ---")
 
     def on_snap(self):
-        self.balls_widget._snap_to_row()
+        self.balls_widget.snap_to_row()
 
-    def update_measured(self):
-        L = self.balls_widget.measured_length_mm()
-        N = self.balls_widget.count_balls()
-        d = (L / N) if N > 0 else 0.0
-        self.lbl_measured.setText(f"L = {L:.1f} мм\nN = {N}\nd = {d:.3f} мм")
+    def clear_inputs(self):
+        self.inp_L.clear()
+        self.inp_N.clear()
+        self.inp_d.clear()
 
-    def on_check(self):
-        try:
-            user_L = float(self.input_L.text())
-            user_N = int(float(self.input_N.text()))
-            user_d = float(self.input_d.text())
-        except Exception:
-            # КОТОРМО: Ошибка -> Ката
-            QMessageBox.warning(self, "Ката", "L, N, d талааларына сан маанилерин киргизиңиз.")
+    def check_answer(self):
+        # 1. Текстти алуу
+        txt_L = self.inp_L.text().replace(',', '.')
+        txt_N = self.inp_N.text()
+        txt_d = self.inp_d.text().replace(',', '.')
+        
+        # 2. Валидация
+        if not txt_L or not txt_N or not txt_d:
+            QMessageBox.warning(self, "Ката", "Бардык талааларды толтуруңуз!")
             return
-        
-        true_L = self.balls_widget.measured_length_mm()
-        true_N = self.balls_widget.count_balls()
-        true_d = (true_L / true_N) if true_N > 0 else 0.0
-        tol_L = max(0.5, true_L * 0.01)
-        tol_N = 0
-        tol_d = max(0.01, true_d * 0.02)
-        ok_L = abs(user_L - true_L) <= tol_L
-        ok_N = (user_N == true_N)
-        ok_d = abs(user_d - true_d) <= tol_d
-        lines = []
-        if ok_L:
-            lines.append("✅ L туура эсептелди.")
-        else:
-            lines.append(f"❌ L туура эмес. Туурасы: {true_L:.1f} мм (кате ±{tol_L:.2f} мм).")
-        
-        if ok_N:
-            lines.append("✅ N туура эсептелди.")
-        else:
-            lines.append(f"❌ N туура эмес. Туурасы: {true_N} даана.")
             
-        if ok_d:
-            lines.append("✅ d туура эсептелди.")
-        else:
-            lines.append(f"❌ d туура эмес. Туурасы: {true_d:.3f} мм (кате ±{tol_d:.3f} мм).")
-            
-        self.lbl_result.setText("\n".join(lines))
+        try:
+            user_L = float(txt_L)
+            user_N = int(txt_N)
+            user_d = float(txt_d)
+        except ValueError:
+            QMessageBox.critical(self, "Ката", "Сандарды туура киргизиңиз!")
+            return
 
-    def on_show(self):
-        true_L = self.balls_widget.measured_length_mm()
-        true_N = self.balls_widget.count_balls()
-        true_d = (true_L / true_N) if true_N > 0 else 0.0
-        self.input_L.setText(f"{true_L:.2f}")
-        self.input_N.setText(str(true_N))
-        self.input_d.setText(f"{true_d:.4f}")
-        # КОТОРМО: Показаны правильные значения -> Туура маанилер көрсөтүлдү
-        self.lbl_result.setText("Туура маанилер көрсөтүлдү.")
+        # 3. Чыныгы маанилерди эсептөө
+        true_L, true_N, true_d = self.balls_widget.get_measurements()
         
+        if true_N == 0:
+            QMessageBox.warning(self, "Ката", "Шариктер жок!")
+            return
+
+        # 4. Салыштыруу (Каталык чеги менен)
+        # L үчүн каталык: 1 мм (көз менен көргөндөгү каталык)
+        is_L_ok = abs(user_L - true_L) <= 1.5 
+        
+        # N так болушу керек
+        is_N_ok = (user_N == true_N)
+        
+        # d үчүн каталык кичине болушу керек
+        is_d_ok = abs(user_d - true_d) <= 0.2
+
+        # 5. Жыйынтыкты чыгаруу
+        self.txt_log.append(f"Киргизилди: L={user_L}, N={user_N}, d={user_d}")
+        
+        all_ok = is_L_ok and is_N_ok and is_d_ok
+        
+        if all_ok:
+            self.txt_log.append("<span style='color:green'><b>✅ ТУУРА</b></span>")
+        else:
+            self.txt_log.append("<span style='color:red'><b>❌ КАТА</b></span>")
+            if not is_L_ok:
+                self.txt_log.append(f"L туура эмес. Чыныгы: {true_L:.1f} мм")
+            if not is_N_ok:
+                self.txt_log.append(f"N туура эмес. Чыныгы: {true_N} даана")
+            if not is_d_ok:
+                self.txt_log.append(f"d туура эмес. Чыныгы: {true_d:.2f} мм")
+                
+        self.txt_log.append("-" * 20)
+        
+        # Скроллду ылдый түшүрүү
+        sb = self.txt_log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def copy_log(self):
+        self.txt_log.selectAll()
+        self.txt_log.copy()
+        cursor = self.txt_log.textCursor()
+        cursor.clearSelection()
+        self.txt_log.setTextCursor(cursor)
+        QMessageBox.information(self, "Маалымат", "Журнал көчүрүлдү!")
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     win = Lab02App()
     win.show()
     sys.exit(app.exec())

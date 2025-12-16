@@ -1,347 +1,311 @@
-# lab_cmp_heat.py
-# Требуется: pip install PySide6
-import sys, random, math
+import sys
+import random
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QMessageBox, QFrame
+    QPushButton, QLineEdit, QMessageBox, QFrame, QGroupBox
 )
-from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPainterPath
-from PySide6.QtCore import Qt, QTimer, QPointF
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient, QRadialGradient
+from PySide6.QtCore import Qt, QTimer, QRectF, QPointF
 
-# Мектеп бирдиктери:
-# масса — грамм (г), температура — °C, жылуулук сыйымдуулук — Дж/(г·°C)
-C_WATER = 4.2  # c1 суу, Дж/(г·°C)
-
+# ==========================================
+# ВИЗУАЛИЗАЦИЯ: Калориметр + Цилиндр
+# ==========================================
 class CalorimeterWidget(QFrame):
-    """
-    Калориметр: суу жана ысык цилиндр.
-    Цилиндрди сууга түшүрүү анимациясы. Термометр жыйынтык Т көрсөтөт.
-    """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(460, 420)
+        self.setMinimumSize(400, 500)
+        self.setStyleSheet("background-color: #fcfcfc; border: 1px solid #ccc; border-radius: 8px;")
+        
         # Параметрлер
-        self.m1 = 100.0   # г (суу)
-        self.t1 = 20.0    # °C
-        self.c1 = C_WATER
-        self.m2 = 100.0   # г (цилиндр)
-        self.t2 = 90.0    # °C
-        self.t_final = None
+        self.m1 = 100 # Суу (г)
+        self.t1 = 20  # Суунун темп.
+        self.m2 = 100 # Цилиндр (г)
+        self.t2 = 90  # Цилиндрдин темп.
+        self.c1 = 4.2 # Суунун жылуулук сыйымдуулугу (Дж/г*С)
+        self.c2 = 0.9 # Алюминий (болжолдуу)
+        
+        self.final_temp = 0
+        self.current_temp = 20
+        
+        # Абал
+        self.is_submerged = False
+        self.cyl_y = 50 # Цилиндрдин бийиктиги (анимация үчүн)
+        self.water_level = 0
+        
         # Анимация
-        self.lowering = False
-        self.anim_t = 0.0
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.on_timer)
+        self.timer.timeout.connect(self.animate)
         self.timer.start(30)
-        self.wave_phase = 0.0
 
-    def set_params(self, m1, t1, m2, t2, c1=C_WATER):
-        self.m1 = float(m1); self.t1 = float(t1)
-        self.m2 = float(m2); self.t2 = float(t2)
-        self.c1 = float(c1)
-        self.t_final = None
-        self.lowering = False
-        self.anim_t = 0.0
+    def set_params(self, m1, t1, m2, t2, c2_real):
+        self.m1 = m1
+        self.t1 = t1
+        self.m2 = m2
+        self.t2 = t2
+        self.c2 = c2_real
+        
+        self.is_submerged = False
+        self.current_temp = t1
+        self.cyl_y = 50
         self.update()
 
-    def start_lowering(self):
-        self.lowering = True
-
-    def mix(self):
-        """
-        Жылуулук балансы боюнча акыркы температураны эсептөө.
-        c1*m1*(t - t1) = c2*m2*(t2 - t)
-        """
-        # Жашыруун c2 (чыныгы) маанисин колдонобуз
-        c2_true = getattr(self, "c2_true", None)
-        if c2_true is None:
-            c2_true = random.uniform(0.2, 1.0)  # Дж/(г·°C)
-            self.c2_true = c2_true
-
-        denom = (self.c1 * self.m1 + c2_true * self.m2)
-        if denom <= 1e-9:
-            self.t_final = None
-        else:
-            self.t_final = (self.c1 * self.m1 * self.t1 + c2_true * self.m2 * self.t2) / denom
+    def submerge(self):
+        if self.is_submerged: return
         
-        self.lowering = False
-        self.anim_t = 1.0
-        self.update()
-
-    def on_timer(self):
-        self.wave_phase += 0.10
-        if self.wave_phase > 2 * math.pi:
-            self.wave_phase -= 2 * math.pi
+        # Жылуулук балансы: c1*m1*(T - t1) = c2*m2*(t2 - T)
+        # T * (c1*m1 + c2*m2) = c1*m1*t1 + c2*m2*t2
+        numerator = self.c1 * self.m1 * self.t1 + self.c2 * self.m2 * self.t2
+        denominator = self.c1 * self.m1 + self.c2 * self.m2
+        self.final_temp = numerator / denominator
         
-        if self.lowering:
-            self.anim_t = min(1.0, self.anim_t + 0.02)
-        else:
-            self.anim_t = max(0.0, self.anim_t - 0.01)
+        self.is_submerged = True
+
+    def animate(self):
+        # Цилиндрдин түшүүсү
+        target_y = 50
+        if self.is_submerged:
+            target_y = 350 # Суунун ичи
+            
+            # Температуранын өзгөрүшү (жай)
+            diff_t = self.final_temp - self.current_temp
+            if abs(diff_t) > 0.1:
+                self.current_temp += diff_t * 0.05
+            else:
+                self.current_temp = self.final_temp
+        
+        # Жылмакай кыймыл
+        diff_y = target_y - self.cyl_y
+        if abs(diff_y) > 1:
+            self.cyl_y += diff_y * 0.1
+            
         self.update()
 
     def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
+        cx = w // 2
         
-        margin = 28
-        cyl_w = int(w * 0.42)
-        cyl_h = int(h * 0.70)
-        cyl_x = margin
-        cyl_y = margin + 18
-
-        # Идиш
-        p.setPen(QPen(Qt.black, 2))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(cyl_x, cyl_y, cyl_w, cyl_h, 8, 8)
-
-        inner_x = cyl_x + 8
-        inner_y = cyl_y + 8
-        inner_w = cyl_w - 16
-        inner_h = cyl_h - 16
-
-        # Суу деңгээли
-        water_fill = 0.60
-        water_h = inner_h * water_fill
-        water_y = inner_y + inner_h - water_h
-
-        # Суу жана толкундар
-        path = QPainterPath()
-        left = inner_x; right = inner_x + inner_w; bottom = inner_y + inner_h
-        steps = 60
-        wave_ampl = 3.0 + 3.0 * self.anim_t
-        level_y = water_y
-        path.moveTo(left, bottom)
-        for i in range(steps + 1):
-            t = i / steps
-            x = left + t * inner_w
-            phase = self.wave_phase + t * 2 * math.pi
-            y = level_y + math.sin(phase) * (wave_ampl * (1 - abs(2*t-1)))
-            path.lineTo(x, y)
-        path.lineTo(right, bottom)
-        path.closeSubpath()
-
-        if self.t_final is None:
-            mix_temp = (self.t1 + self.t2) / 2.0
-        else:
-            mix_temp = self.t_final
-        base_blue = max(60, 255 - int(mix_temp))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(100 + int(mix_temp), 150, base_blue, 220))
-        p.drawPath(path)
-
-        p.setPen(QPen(QColor(40,80,160,200), 1))
-        p.drawLine(left, level_y, right, level_y)
-
-        # Бөлүктөр
-        p.setPen(QPen(Qt.black, 1))
-        p.setFont(QFont("Sans", 9))
-        for i in range(0, 6):
-            y_tick = inner_y + inner_h - i * inner_h / 5
-            p.drawLine(inner_x - 10, y_tick, inner_x, y_tick)
-
-        # Цилиндр (ысык нерсе)
-        radius_px = max(12, min(int((self.m2 ** (1/3.0)) * 2.0), int(inner_w * 0.40)))
-        body_cx = inner_x + inner_w / 2
-        top_anchor_y = cyl_y - 24
+        # 1. Калориметр
+        cw = 220
+        ch = 250
+        cy = h - 50 - ch
         
-        y_top = top_anchor_y + 16
-        y_bottom = level_y + radius_px * 0.6 
-        cy = y_top + (y_bottom - y_top) * self.anim_t
+        # Изоляция
+        painter.setBrush(QColor(200, 200, 200))
+        painter.setPen(QPen(Qt.black, 2))
+        painter.drawRect(cx - cw//2 - 10, cy, cw + 20, ch)
+        
+        # Ички идиш
+        painter.setBrush(QColor(240, 240, 255))
+        painter.drawRect(cx - cw//2, cy + 10, cw, ch - 20)
+        
+        # 2. Суу
+        # Суунун деңгээли массага жараша + цилиндр түшкөндө көтөрүлөт
+        base_water_h = (self.m1 / 500) * (ch - 40) # 500г максималдуу сыйымдуулук
+        if base_water_h < 50: base_water_h = 50
+        
+        water_rise = 0
+        if self.cyl_y > cy + ch - base_water_h: # Эгер цилиндр сууга тийсе
+            # Жөнөкөй эсептөө: цилиндрдин массасына жараша суу көтөрүлөт
+            water_rise = (self.m2 / 500) * 20 
+            
+        current_water_h = base_water_h + water_rise
+        if current_water_h > ch - 20: current_water_h = ch - 20
+        
+        # Температурага жараша түс (Көк -> Кызгылт)
+        temp_ratio = (self.current_temp - 20) / 80 # 20..100
+        if temp_ratio > 1: temp_ratio = 1
+        if temp_ratio < 0: temp_ratio = 0
+        
+        r = int(100 + 155 * temp_ratio)
+        b = int(255 - 155 * temp_ratio)
+        water_color = QColor(r, 100, b, 180)
+        
+        water_y = cy + ch - 10 - current_water_h
+        
+        painter.setBrush(water_color)
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(cx - cw//2, water_y, cw, current_water_h)
+        
+        # Суунун бети
+        painter.setPen(QPen(water_color.darker(), 2))
+        painter.drawLine(cx - cw//2, water_y, cx + cw//2, water_y)
 
+        # 3. Цилиндр (Ысык нерсе)
+        cyl_w = 40
+        cyl_h = 60
+        cyl_x = cx - cyl_w//2
+        
         # Жип
-        p.setPen(QPen(Qt.black, 1))
-        p.drawLine(body_cx, top_anchor_y, body_cx, cy - radius_px)
+        painter.setPen(QPen(Qt.black, 1))
+        painter.drawLine(cx, 0, cx, int(self.cyl_y))
         
-        # Нерсе
-        p.setBrush(QColor(200, 90, 70))
-        p.setPen(QPen(Qt.black, 1))
-        p.drawEllipse(QPointF(body_cx, cy), radius_px, radius_px)
+        # Цилиндрдин өзү
+        # Ысык кезинде кызыл, муздаганда бозорот
+        cyl_temp_ratio = 0
+        if self.is_submerged:
+            # Суу менен теңелип калды
+            cyl_temp_ratio = temp_ratio
+        else:
+            # Башында ысык (90-100 градус)
+            cyl_temp_ratio = (self.t2 - 20) / 80
+            
+        cr = int(100 + 155 * cyl_temp_ratio)
+        cb = int(100 - 100 * cyl_temp_ratio)
+        cyl_color = QColor(cr, 50, cb)
         
-        # Термометр
-        therm_x = inner_x + inner_w + 24
-        therm_y = inner_y + 12
-        p.setPen(QPen(Qt.black, 2))
-        p.setBrush(QColor(240,240,240))
-        p.drawRoundedRect(therm_x, therm_y, 140, 80, 6, 6)
-        p.setPen(QPen(Qt.black,1))
-        p.setFont(QFont("Sans", 12, QFont.Bold))
-        T_show = self.t_final if self.t_final is not None else None
-        text = f"T = {T_show:.1f} °C" if T_show is not None else "T = — °C"
-        p.drawText(therm_x + 12, therm_y + 46, text)
+        painter.setBrush(cyl_color)
+        painter.setPen(QPen(Qt.black, 1))
+        painter.drawRect(int(cyl_x), int(self.cyl_y), cyl_w, cyl_h)
+        
+        # 4. Термометр
+        th_x = cx + 80
+        th_y = cy - 40
+        th_h = 280
+        th_w = 12
+        
+        painter.setBrush(QColor(255, 255, 255))
+        painter.drawRect(th_x, th_y, th_w, th_h)
+        painter.drawEllipse(th_x - 4, th_y + th_h - 8, 20, 20)
+        
+        # Сымап
+        merc_h = (self.current_temp / 100) * (th_h - 20)
+        painter.setBrush(QColor(200, 0, 0))
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(th_x + 3, th_y + th_h - 10 - merc_h, 6, merc_h + 10)
+        painter.drawEllipse(th_x - 4, th_y + th_h - 8, 20, 20)
+        
+        # Көрсөткүч
+        painter.setPen(Qt.black)
+        painter.setFont(QFont("Arial", 12, QFont.Bold))
+        painter.drawText(th_x + 25, th_y + th_h - merc_h, f"{self.current_temp:.1f}°C")
 
-        # Параметрлерди жазуу
-        p.setFont(QFont("Sans", 10))
-        p.drawText(therm_x, therm_y + 100, f"m1={self.m1:.0f} г, t1={self.t1:.0f} °C")
-        p.drawText(therm_x, therm_y + 116, f"m2={self.m2:.0f} г, t2={self.t2:.0f} °C")
-        p.drawText(therm_x, therm_y + 132, f"c1={self.c1:.2f} Дж/(г·°C)")
-
-class LabCmpHeatApp(QWidget):
+# ==========================================
+# НЕГИЗГИ ТЕРЕЗЕ
+# ==========================================
+class LabSpecificHeatApp(QWidget):
     def __init__(self):
         super().__init__()
-        # КОТОРМО: Сравнительная теплоёмкость твёрдых тел -> Катуу нерселердин салыштырмалуу жылуулук сыйымдуулугу
-        self.setWindowTitle("Лабораториялык иш — Катуу нерселердин салыштырмалуу жылуулук сыйымдуулугу")
-        self.setMinimumSize(1100, 680)
+        self.setWindowTitle("Лабораториялык иш №11: Салыштырма жылуулук сыйымдуулук")
+        self.resize(1000, 650)
+        
+        self.materials = {
+            "Алюминий": 0.92,
+            "Жез (Медь)": 0.38,
+            "Темир": 0.46,
+            "Латунь": 0.38
+        }
+        self.current_c2 = 0
+        
+        self.setup_ui()
+        self.new_experiment()
 
-        self._generate_experiment()
-
+    def setup_ui(self):
         main = QHBoxLayout(self)
-        left = QVBoxLayout(); right = QVBoxLayout()
-        main.addLayout(left, 2); main.addLayout(right, 1)
 
-        self.cal = CalorimeterWidget()
-        self.cal.set_params(self.m1, self.t1, self.m2, self.t2, C_WATER)
-        left.addWidget(self.cal)
+        # --- СОЛ ЖАК: Калориметр ---
+        left_group = QGroupBox("Стенд")
+        left_layout = QVBoxLayout()
+        self.calorimeter = CalorimeterWidget()
+        left_layout.addWidget(self.calorimeter)
+        left_group.setLayout(left_layout)
+        main.addWidget(left_group, 2)
 
-        # КОТОРМО: Заголовок
-        right.addWidget(QLabel("<b>Катуу нерселердин салыштырмалуу жылуулук сыйымдуулугу</b>"))
+        # --- ОҢ ЖАК: Башкаруу ---
+        right_panel = QVBoxLayout()
+        main.addLayout(right_panel, 1)
+
+        # 1. Тапшырма
+        task_g = QGroupBox("Тапшырма")
+        task_l = QVBoxLayout()
+        task_l.addWidget(QLabel("1. Параметрлерди жазып алыңыз."))
+        task_l.addWidget(QLabel("2. Цилиндрди сууга түшүрүп, акыркы температураны (T) аныктаңыз."))
+        task_l.addWidget(QLabel("3. Цилиндрдин жылуулук сыйымдуулугун (c2) эсептеңиз."))
+        task_l.addWidget(QLabel("Формула: c2 = (c1*m1*(T-t1)) / (m2*(t2-T))"))
+        task_g.setLayout(task_l)
+        right_panel.addWidget(task_g)
+
+        # 2. Параметрлер (Дано)
+        param_g = QGroupBox("Берилген маанилер")
+        param_l = QVBoxLayout()
+        self.lbl_water = QLabel("Суу (c1=4.2): m1=... г, t1=... °C")
+        self.lbl_cyl = QLabel("Цилиндр: m2=... г, t2=... °C")
         
-        # КОТОРМО: Инструкция
-        info = QLabel(
-            "Ысык цилиндрди сууга түшүрүңүз («Цилиндрди салуу» баскычы), андан кийин «Аралаштыруу» баскычын басыңыз.\n"
-            "Акыркы температураны (T) өлчөп, c₂ маанисин формула боюнча эсептеңиз:\n"
-            "c₂ = (c₁·m₁·(T − t₁)) / (m₂·(t₂ − T)). Бирдиги: Дж/(г·°C)."
-        )
-        info.setWordWrap(True)
-        right.addWidget(info)
+        param_l.addWidget(self.lbl_water)
+        param_l.addWidget(self.lbl_cyl)
+        param_g.setLayout(param_l)
+        right_panel.addWidget(param_g)
 
-        # Поля ввода
-        right.addWidget(QLabel("<b>Тажрыйбанын параметрлери</b>"))
-        self.input_m1 = QLineEdit(); self.input_m1.setPlaceholderText("m1 (г) суу")
-        self.input_t1 = QLineEdit(); self.input_t1.setPlaceholderText("t1 (°C) суу")
-        self.input_m2 = QLineEdit(); self.input_m2.setPlaceholderText("m2 (г) цилиндр")
-        self.input_t2 = QLineEdit(); self.input_t2.setPlaceholderText("t2 (°C) цилиндр")
-        self.input_c1 = QLineEdit(); self.input_c1.setPlaceholderText("c1 суу (Дж/(г·°C))")
-        self.input_c1.setText(f"{C_WATER:.2f}")
+        # 3. Аракет
+        act_g = QGroupBox("Аракет")
+        act_l = QVBoxLayout()
+        btn_submerge = QPushButton("Цилиндрди түшүрүү")
+        btn_submerge.setStyleSheet("background-color: #FFA726; color: white; font-weight: bold;")
+        btn_submerge.clicked.connect(self.calorimeter.submerge)
+        act_l.addWidget(btn_submerge)
+        act_g.setLayout(act_l)
+        right_panel.addWidget(act_g)
+
+        # 4. Жооп
+        ans_g = QGroupBox("Жооп")
+        ans_l = QVBoxLayout()
+        self.in_c2 = QLineEdit()
+        self.in_c2.setPlaceholderText("c2 (Дж/г°C)")
         
-        right.addWidget(self.input_m1)
-        right.addWidget(self.input_t1)
-        right.addWidget(self.input_m2)
-        right.addWidget(self.input_t2)
-        right.addWidget(self.input_c1)
+        btn_check = QPushButton("Текшерүү")
+        btn_check.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        btn_check.clicked.connect(self.check_answer)
+        
+        btn_new = QPushButton("Жаңы эксперимент")
+        btn_new.clicked.connect(self.new_experiment)
+        
+        ans_l.addWidget(self.in_c2)
+        ans_l.addWidget(btn_check)
+        ans_l.addWidget(btn_new)
+        ans_g.setLayout(ans_l)
+        right_panel.addWidget(ans_g)
+        
+        right_panel.addStretch(1)
 
-        right.addSpacing(8)
-        # КОТОРМО: Ответ ученика -> Окуучунун жообу
-        right.addWidget(QLabel("<b>Окуучунун жообу</b>"))
-        self.input_T = QLineEdit(); self.input_T.setPlaceholderText("T (°C) — акыркы температура")
-        self.input_c2 = QLineEdit(); self.input_c2.setPlaceholderText("c2 (Дж/(г·°C)) — эсептеп көрүңүз")
-        right.addWidget(self.input_T)
-        right.addWidget(self.input_c2)
+    def new_experiment(self):
+        # Кокустук параметрлер
+        self.m1 = random.randint(100, 200) # Суу
+        self.t1 = random.randint(15, 25)
+        
+        self.m2 = random.randint(50, 150) # Цилиндр
+        self.t2 = random.randint(80, 95)
+        
+        # Материалды тандоо
+        name, c2 = random.choice(list(self.materials.items()))
+        self.current_c2 = c2
+        self.current_material = name
+        
+        self.lbl_water.setText(f"Суу (c1=4.2): m1={self.m1} г, t1={self.t1} °C")
+        self.lbl_cyl.setText(f"Цилиндр: m2={self.m2} г, t2={self.t2} °C")
+        
+        self.calorimeter.set_params(self.m1, self.t1, self.m2, self.t2, c2)
+        self.in_c2.clear()
 
-        # Кнопки
-        # КОТОРМО: Погрузить цилиндр -> Цилиндрди салуу
-        btn_lower = QPushButton("Цилиндрди салуу")
-        btn_lower.clicked.connect(self.lower_cylinder)
-        # КОТОРМО: Смешать -> Аралаштыруу
-        btn_mix = QPushButton("Аралаштыруу")
-        btn_mix.clicked.connect(self.mix)
-        # КОТОРМО: Проверить c2 -> c2 текшерүү
-        btn_check = QPushButton("c2 текшерүү")
-        btn_check.clicked.connect(self.check_c2)
-        # КОТОРМО: Показать правильные значения -> Туура маанилерди көрсөтүү
-        btn_show = QPushButton("Туура маанилерди көрсөтүү")
-        btn_show.clicked.connect(self.show_answers)
-        # КОТОРМО: Случайный эксперимент -> Кокустан тандалган тажрыйба
-        btn_random = QPushButton("Кокустан тандалган тажрыйба")
-        btn_random.clicked.connect(self.random_experiment)
-        # КОТОРМО: Сброс -> Кайра баштоо
-        btn_reset = QPushButton("Кайра баштоо")
-        btn_reset.clicked.connect(self.reset)
-
-        right.addWidget(btn_lower)
-        right.addWidget(btn_mix)
-        right.addWidget(btn_check)
-        right.addWidget(btn_show)
-        right.addWidget(btn_random)
-        right.addWidget(btn_reset)
-
-        self.lbl_result = QLabel("")
-        right.addWidget(self.lbl_result)
-        right.addStretch(1)
-
-        self.ui_timer = QTimer(self)
-        self.ui_timer.timeout.connect(self.update_labels)
-        self.ui_timer.start(200)
-
-    def _generate_experiment(self):
-        self.m1 = random.randint(80, 200)   # г суу
-        self.t1 = random.randint(15, 30)    # °C
-        self.m2 = random.randint(60, 200)   # г цилиндр
-        self.t2 = random.randint(60, 95)    # °C
-        self.c2_true = random.uniform(0.2, 1.0) # жашыруун c2
-
-    def update_labels(self):
-        pass
-
-    def lower_cylinder(self):
-        self.cal.start_lowering()
-
-    def mix(self):
+    def check_answer(self):
+        if not self.calorimeter.is_submerged:
+            QMessageBox.warning(self, "Ката", "Адегенде цилиндрди сууга түшүрүңүз!")
+            return
+            
         try:
-            m1 = float(self.input_m1.text()); t1 = float(self.input_t1.text())
-            m2 = float(self.input_m2.text()); t2 = float(self.input_t2.text())
-            c1 = float(self.input_c1.text())
-        except Exception:
-            QMessageBox.warning(self, "Ката", "Сан маанилерин киргизиңиз (m1, t1, m2, t2, c1).")
+            u_c2 = float(self.in_c2.text())
+        except:
+            QMessageBox.warning(self, "Ката", "Сан жазыңыз!")
             return
-        self.cal.set_params(m1, t1, m2, t2, c1)
-        self.cal.c2_true = self.c2_true
-        self.cal.mix()
-        if self.cal.t_final is None:
-            QMessageBox.information(self, "Маалымат", "Параметрлер туура эмес.")
+            
+        if abs(u_c2 - self.current_c2) < 0.1:
+            QMessageBox.information(self, "Жыйынтык", f"✅ ТУУРА! Бул {self.current_material} (c2={self.current_c2})")
         else:
-            self.input_T.setText(f"{self.cal.t_final:.2f}")
-
-    def check_c2(self):
-        if self.cal.t_final is None:
-            QMessageBox.information(self, "Маалымат", "Адегенде аралаштырып, T маанисин алыңыз.")
-            return
-        try:
-            c2_user = float(self.input_c2.text())
-        except Exception:
-            QMessageBox.warning(self, "Ката", "c2 үчүн сан маанисин киргизиңиз.")
-            return
-        c2_true = float(self.c2_true)
-        tol = max(0.05 * c2_true, 0.02)
-        if abs(c2_user - c2_true) <= tol:
-            # КОТОРМО: ... верно -> ... туура эсептелди
-            self.lbl_result.setText("✅ c₂ туура эсептелди.")
-        else:
-            # КОТОРМО: Неверно... -> Туура эмес...
-            self.lbl_result.setText(f"❌ Туура эмес. Туура c₂ ≈ {c2_true:.3f} Дж/(г·°C) ( piela ±{tol:.3f}).")
-
-    def show_answers(self):
-        if self.cal.t_final is None:
-            QMessageBox.information(self, "Маалымат", "Адегенде аралаштырыңыз.")
-            return
-        self.input_T.setText(f"{self.cal.t_final:.2f}")
-        self.input_c2.setText(f"{self.c2_true:.3f}")
-        self.lbl_result.setText("Туура T жана c₂ көрсөтүлдү.")
-
-    def random_experiment(self):
-        self._generate_experiment()
-        self.input_m1.setText(f"{self.m1:.0f}")
-        self.input_t1.setText(f"{self.t1:.0f}")
-        self.input_m2.setText(f"{self.m2:.0f}")
-        self.input_t2.setText(f"{self.t2:.0f}")
-        self.input_c1.setText(f"{C_WATER:.2f}")
-        self.cal.set_params(self.m1, self.t1, self.m2, self.t2, C_WATER)
-        self.cal.c2_true = self.c2_true
-        self.cal.t_final = None
-        self.lbl_result.setText("")
-        self.input_T.clear(); self.input_c2.clear()
-
-    def reset(self):
-        self.input_m1.clear(); self.input_t1.clear()
-        self.input_m2.clear(); self.input_t2.clear()
-        self.input_c1.setText(f"{C_WATER:.2f}")
-        self.input_T.clear(); self.input_c2.clear()
-        self.cal.set_params(100, 20, 100, 90, C_WATER)
-        self.cal.t_final = None
-        self.lbl_result.setText("")
+            QMessageBox.warning(self, "Жыйынтык", f"❌ КАТА. Туура жооп: {self.current_c2}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    win = LabCmpHeatApp()
+    app.setStyle("Fusion")
+    win = LabSpecificHeatApp()
     win.show()
     sys.exit(app.exec())

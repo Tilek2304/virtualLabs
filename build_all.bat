@@ -5,16 +5,16 @@ REM Собирает все файлы из папок lab**/main.py
 
 setlocal enabledelayedexpansion
 
-echo 🔨 Начало сборки всех EXE файлов...
+echo 🔨 start all ru EXE files...
 echo.
 
 REM Активируем виртуальное окружение
 call .\env\Scripts\activate.bat
 
-echo ✅ Виртуальное окружение активировано
+echo ✅ venv activated
 
 REM Устанавливаем необходимые пакеты
-echo 📦 Установка зависимостей...
+echo 📦 pip installing
 pip install --quiet pyinstaller pyside6 numpy
 
 echo.
@@ -32,7 +32,7 @@ for /d %%L in (lab*) do (
     
     REM Проверяем наличие main.py
     if exist "%%L\main.py" (
-        echo 🔨 Собираю !LAB_NAME!...
+        echo 🔨 building !LAB_NAME!...
         
         REM Выполняем PyInstaller
         pyinstaller ^
@@ -47,10 +47,10 @@ for /d %%L in (lab*) do (
             "%%L\main.py" 2>&1 | find "completed successfully"
         
         if !errorlevel! equ 0 (
-            echo ✅ !LAB_NAME! собран успешно
+            echo ✅ !LAB_NAME! building success
             set /a BUILT+=1
         ) else (
-            echo ❌ Ошибка при сборке !LAB_NAME!
+            echo ❌ building unsuccessfully !LAB_NAME!
             set /a FAILED+=1
         )
         echo.
@@ -58,12 +58,12 @@ for /d %%L in (lab*) do (
 )
 
 echo ═══════════════════════════════════════════
-echo 📊 Результаты сборки:
-echo ✅ Успешно собрано: %BUILT%
+echo 📊 result building:
+echo ✅ success: %BUILT%
 if %FAILED% gtr 0 (
-    echo ❌ Ошибок: %FAILED%
+    echo ❌ errors: %FAILED%
 )
-echo 📁 EXE файлы находятся в: .\dist\
+echo 📁 EXE files in: .\dist\
 echo ═══════════════════════════════════════════
 echo.
 echo 💡 Примечания:

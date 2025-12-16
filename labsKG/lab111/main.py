@@ -1,332 +1,255 @@
-# lab_pendulum_g.py
-# Требуется: pip install PySide6
-import sys, math, random
+import sys
+import math
+import random
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QMessageBox, QFrame, QSlider, QCheckBox
+    QPushButton, QLineEdit, QMessageBox, QFrame, QGroupBox
 )
 from PySide6.QtGui import QPainter, QColor, QPen, QFont
 from PySide6.QtCore import Qt, QTimer, QPointF
 
+# ==========================================
+# ВИЗУАЛИЗАЦИЯ: Маятник + Секундомер
+# ==========================================
 class PendulumWidget(QFrame):
-    """
-    Маятник анимациясы жана өлчөө.
-    """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(640, 420)
-        # Параметрлер
-        self.l_m = 1.0            # узундук (м)
-        self.px_per_m = 300.0     # масштаб
-        self.l_px = self.l_m * self.px_per_m
-        self.theta = 0.25         # бурч (рад)
-        self.omega = 0.0
-        self.g_model = 9.81
-        self.damping = 0.02
-        self.dt = 0.016
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._tick)
-        self.timer.start(int(self.dt*1000))
-        # Өлчөө
-        self.measure_running = False
-        self.crossings = []
-        self.last_sign = None
-
-    def set_params(self, l_m=None, theta_deg=None, g_model=None, damping=None):
-        if l_m is not None:
-            self.l_m = float(l_m)
-            self.l_px = self.l_m * self.px_per_m
-        if theta_deg is not None:
-            self.theta = math.radians(float(theta_deg))
-        if g_model is not None:
-            self.g_model = float(g_model)
-        if damping is not None:
-            self.damping = float(damping)
-        self.omega = 0.0
-        self.crossings = []
-        self.last_sign = None
-        self.update()
-
-    def start_measure(self):
-        self.measure_running = True
-        self.crossings = []
-        self.last_sign = math.copysign(1.0, math.sin(self.theta)) if abs(self.theta)>1e-6 else 1.0
-
-    def stop_measure(self):
-        self.measure_running = False
-
-    def reset_motion(self):
-        self.theta = 0.25
-        self.omega = 0.0
-        self.crossings = []
-        self.last_sign = None
-        self.update()
-
-    def _tick(self):
-        # theta'' = - (g / l) * sin(theta) - damping * omega
-        alpha = - (self.g_model / self.l_m) * math.sin(self.theta) - self.damping * self.omega
-        self.omega += alpha * self.dt
-        self.theta += self.omega * self.dt
+        self.setMinimumSize(500, 450)
+        self.setStyleSheet("background-color: #fcfcfc; border: 1px solid #ccc; border-radius: 8px;")
         
-        if self.measure_running:
-            sign = math.copysign(1.0, self.theta) if abs(self.theta)>1e-6 else 0.0
-            if self.last_sign is not None and sign != 0.0 and sign != self.last_sign:
-                self.crossings.append(self._current_time())
-            self.last_sign = sign
+        # Ички параметрлер (Окуучуга көрүнбөйт)
+        self.length = 1.0   
+        self.g = 9.81       
+        
+        # Анимация өзгөрмөлөрү
+        self.angle = 0.0    
+        self.max_angle = math.radians(15)
+        self.time = 0.0     
+        self.is_running = False
+        
+        self.stopwatch_time = 0.0
+        self.stopwatch_running = False
+        
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(20) # 50 FPS (20ms)
+
+    def set_physics(self, l, g):
+        self.length = l
+        self.g = g
+        self.reset()
+
+    def reset(self):
+        self.time = 0.0
+        self.angle = self.max_angle
+        self.is_running = False
+        self.stopwatch_time = 0.0
+        self.stopwatch_running = False
         self.update()
 
-    def _current_time(self):
-        import time
-        return time.time()
+    def start_swing(self):
+        self.is_running = True
+
+    def toggle_stopwatch(self):
+        self.stopwatch_running = not self.stopwatch_running
+
+    def reset_stopwatch(self):
+        self.stopwatch_time = 0.0
+        self.stopwatch_running = False
+        self.update()
+
+    def animate(self):
+        # Маятник (Реалдуу убакыт)
+        if self.is_running:
+            self.time += 0.02
+            # T = 2*pi*sqrt(l/g) -> omega = 2*pi/T = sqrt(g/l)
+            omega = math.sqrt(self.g / self.length)
+            self.angle = self.max_angle * math.cos(omega * self.time)
+            
+        # Секундомер
+        if self.stopwatch_running:
+            self.stopwatch_time += 0.02
+            
+        self.update()
 
     def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        p.fillRect(self.rect(), QColor(250,250,250))
-        cx, cy = w//2, 80
-        
-        # Бекиткич
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(160,160,160))
-        p.drawRect(cx-40, cy-8, 80, 12)
-        
-        # Жип жана жүк
-        x = cx + int(self.l_px * math.sin(self.theta))
-        y = cy + int(self.l_px * math.cos(self.theta))
-        p.setPen(QPen(QColor(80,80,120), 3))
-        p.drawLine(cx, cy+6, x, y)
-        p.setBrush(QColor(200,60,60)); p.setPen(QPen(Qt.black,2))
-        p.drawEllipse(x-18, y-18, 36, 36)
-        
-        # Текст
-        p.setPen(QPen(Qt.black,1)); p.setFont(QFont("Sans",10))
-        p.drawText(12, 18, f"l = {self.l_m:.3f} м ({int(self.l_px)} px)")
-        p.drawText(12, 36, f"θ = {math.degrees(self.theta):.2f}°  ω = {self.omega:.3f} рад/с")
-        # КОТОРМО: g (модель)
-        p.drawText(12, 54, f"g (модель) = {self.g_model:.4f} м/с²")
-        
-        if len(self.crossings) >= 2:
-            times = self.crossings
-            periods = []
-            for i in range(len(times)-2):
-                try:
-                    pval = times[i+2] - times[i]
-                    if pval>0:
-                        periods.append(pval)
-                except:
-                    pass
-            if periods:
-                avgT = sum(periods)/len(periods)
-                # КОТОРМО: Акыркы T... (орточо)
-                p.drawText(12, 72, f"Акыркы T ≈ {avgT:.3f} с ({len(periods)} маани боюнча орточо)")
+        cx, cy = w // 2, 50
 
-class LabPendulumApp(QWidget):
+        # 1. Штатив
+        painter.setPen(QPen(Qt.black, 3))
+        painter.drawLine(cx - 50, cy, cx + 50, cy)
+        
+        # 2. Жип жана Жүк
+        # Масштаб: Эгер жип узун болсо, экранга баткыдай кылабыз
+        scale = 250 
+        l_px = self.length * scale
+        if l_px > h - 100: l_px = h - 100 # Чектөө
+        
+        bx = cx + l_px * math.sin(self.angle)
+        by = cy + l_px * math.cos(self.angle)
+        
+        painter.setPen(QPen(Qt.black, 1))
+        painter.drawLine(cx, cy, bx, by)
+        
+        painter.setBrush(QColor(200, 50, 50))
+        painter.setPen(Qt.black)
+        painter.drawEllipse(QPointF(bx, by), 15, 15)
+
+        # 3. Секундомер
+        sw_x = w - 130
+        sw_y = 80
+        painter.setBrush(QColor(40, 40, 40))
+        painter.setPen(Qt.black)
+        painter.drawRect(sw_x, sw_y, 110, 50)
+        
+        painter.setPen(QColor(0, 255, 0)) # Жашыл сандар
+        painter.setFont(QFont("Courier", 22, QFont.Bold))
+        painter.drawText(sw_x + 10, sw_y + 35, f"{self.stopwatch_time:.2f}")
+        
+        painter.setPen(Qt.black)
+        painter.setFont(QFont("Arial", 10))
+        painter.drawText(sw_x, sw_y - 5, "Секундомер")
+
+# ==========================================
+# НЕГИЗГИ ТЕРЕЗЕ
+# ==========================================
+class LabFrequencyApp(QWidget):
     def __init__(self):
         super().__init__()
-        # КОТОРМО: Маятник и g -> Маятник жана g (эркин түшүү ылдамдануусун өлчөө)
-        self.setWindowTitle("Лабораториялык иш — Маятник жана g (эркин түшүү ылдамдануусун өлчөө)")
-        self.setMinimumSize(1100, 700)
+        self.setWindowTitle("Лабораториялык иш: Термелүү жыштыгын аныктоо")
+        self.resize(1000, 600)
+        
+        self.true_freq = 0.0
+        self.setup_ui()
+        self.new_experiment()
 
+    def setup_ui(self):
         main = QHBoxLayout(self)
-        left = QVBoxLayout(); right = QVBoxLayout()
-        main.addLayout(left, 2); main.addLayout(right, 1)
 
-        self.pend = PendulumWidget()
-        left.addWidget(self.pend)
+        # --- СОЛ ЖАК ---
+        left_group = QGroupBox("Стенд")
+        left_layout = QVBoxLayout()
+        self.pendulum = PendulumWidget()
+        left_layout.addWidget(self.pendulum)
+        left_group.setLayout(left_layout)
+        main.addWidget(left_group, 2)
 
-        # Правая панель
-        # КОТОРМО: Заголовок
-        right.addWidget(QLabel("<b>Маятниктин параметрлери</b>"))
+        # --- ОҢ ЖАК ---
+        right_panel = QVBoxLayout()
+        main.addLayout(right_panel, 1)
+
+        # 1. Инструкция
+        task_g = QGroupBox("Тапшырма")
+        task_l = QVBoxLayout()
+        task_l.addWidget(QLabel("1. 'Термелтүү' баскычын басыңыз."))
+        task_l.addWidget(QLabel("2. Секундомерди иштетип, туура 10 термелүүнү санаңыз."))
+        task_l.addWidget(QLabel("3. Убакытты (t) жазып, жыштыкты табыңыз."))
+        task_l.addWidget(QLabel("Формула: ν = N / t (Жыштык = Саны / Убакыт)"))
+        task_g.setLayout(task_l)
+        right_panel.addWidget(task_g)
+
+        # 2. Куралдар
+        ctrl_g = QGroupBox("Куралдар")
+        ctrl_l = QVBoxLayout()
         
-        self.input_l = QLineEdit(); self.input_l.setPlaceholderText("мисалы 1.00")
-        self.input_theta = QLineEdit(); self.input_theta.setPlaceholderText("мисалы 14")
-        self.input_gmodel = QLineEdit(); self.input_gmodel.setPlaceholderText("мисалы 9.81")
+        btn_swing = QPushButton("1. Термелтүү")
+        btn_swing.clicked.connect(self.pendulum.start_swing)
         
-        right.addWidget(QLabel("Узундук l (м)"))
-        right.addWidget(self.input_l)
-        right.addWidget(QLabel("Баштапкы бурч θ (°)"))
-        right.addWidget(self.input_theta)
-        right.addWidget(QLabel("g модели (м/с²) — милдеттүү эмес"))
-        right.addWidget(self.input_gmodel)
-
-        right.addSpacing(6)
-        # КОТОРМО: Измерения -> Өлчөөлөр
-        right.addWidget(QLabel("<b>Өлчөөлөр</b>"))
-        self.chk_manual = QCheckBox("Кол менен жазуу (авто толтуруу жок)")
-        right.addWidget(self.chk_manual)
+        self.btn_timer = QPushButton("2. Секундомер (Старт/Стоп)")
+        self.btn_timer.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold;")
+        self.btn_timer.clicked.connect(self.toggle_timer_text)
         
-        self.input_n = QLineEdit(); self.input_n.setPlaceholderText("мисалы 10")
-        right.addWidget(QLabel("Термелүү саны (n)"))
-        right.addWidget(self.input_n)
-
-        right.addSpacing(6)
-        # КОТОРМО: Окуучунун жооптору
-        right.addWidget(QLabel("<b>Окуучунун жооптору</b>"))
-        self.input_T = QLineEdit(); self.input_T.setPlaceholderText("T (с) — мезгил")
-        self.input_g_user = QLineEdit(); self.input_g_user.setPlaceholderText("g (м/с²) — сиздин эсептөө")
+        btn_reset_timer = QPushButton("Секундомерди нөлдөө")
+        btn_reset_timer.clicked.connect(self.pendulum.reset_stopwatch)
         
-        right.addWidget(self.input_T)
-        right.addWidget(self.input_g_user)
+        ctrl_l.addWidget(btn_swing)
+        ctrl_l.addWidget(self.btn_timer)
+        ctrl_l.addWidget(btn_reset_timer)
+        ctrl_g.setLayout(ctrl_l)
+        right_panel.addWidget(ctrl_g)
 
-        # Кнопки
-        # КОТОРМО: Применить -> Колдонуу
-        btn_apply = QPushButton("Колдонуу")
-        btn_apply.clicked.connect(self.apply_params)
-        # КОТОРМО: Запустить -> Баштоо
-        btn_start = QPushButton("Баштоо")
-        btn_start.clicked.connect(self.start_pendulum)
-        # КОТОРМО: Остановить -> Токтотуу
-        btn_stop = QPushButton("Токтотуу")
-        btn_stop.clicked.connect(self.stop_pendulum)
-        # КОТОРМО: Сброс движения -> Кыймылды тазалоо
-        btn_reset = QPushButton("Кыймылды тазалоо")
-        btn_reset.clicked.connect(self.reset_motion)
-        # КОТОРМО: Измерить -> Өлчөө
-        btn_measure = QPushButton("Өлчөө")
-        btn_measure.clicked.connect(self.measure)
-        # КОТОРМО: Проверить g -> g текшерүү
-        btn_check = QPushButton("g текшерүү")
-        btn_check.clicked.connect(self.check)
-        # КОТОРМО: Показать ответ -> Жоопту көрсөтүү
-        btn_show = QPushButton("Жоопту көрсөтүү")
-        btn_show.clicked.connect(self.show_answer)
-        # КОТОРМО: Случайный -> Кокустан тандалган
-        btn_random = QPushButton("Кокустан тандалган тажрыйба")
-        btn_random.clicked.connect(self.random_experiment)
-        # КОТОРМО: Сброс всех полей -> Талааларды тазалоо
-        btn_clear = QPushButton("Талааларды тазалоо")
-        btn_clear.clicked.connect(self.clear_fields)
+        # 3. Эсептөө
+        calc_g = QGroupBox("Эсептөөлөр")
+        calc_l = QVBoxLayout()
+        
+        self.in_t = QLineEdit(); self.in_t.setPlaceholderText("Убакыт t (с)")
+        self.in_freq = QLineEdit(); self.in_freq.setPlaceholderText("Жыштык ν (Гц)")
+        
+        calc_l.addWidget(QLabel("10 термелүү убактысы (t):"))
+        calc_l.addWidget(self.in_t)
+        calc_l.addWidget(QLabel("Термелүү жыштыгы (ν = 10/t):"))
+        calc_l.addWidget(self.in_freq)
+        
+        btn_check = QPushButton("Текшерүү")
+        btn_check.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        btn_check.clicked.connect(self.check_answer)
+        
+        btn_new = QPushButton("Жаңы эксперимент")
+        btn_new.clicked.connect(self.new_experiment)
+        
+        calc_l.addWidget(btn_check)
+        calc_l.addWidget(btn_new)
+        
+        calc_g.setLayout(calc_l)
+        right_panel.addWidget(calc_g)
+        
+        right_panel.addStretch(1)
 
-        right.addWidget(btn_apply)
-        right.addWidget(btn_start)
-        right.addWidget(btn_stop)
-        right.addWidget(btn_reset)
-        right.addWidget(btn_measure)
-        right.addWidget(btn_check)
-        right.addWidget(btn_show)
-        right.addWidget(btn_random)
-        right.addWidget(btn_clear)
-
-        right.addSpacing(8)
-        # КОТОРМО: Результаты -> Жыйынтыктар
-        right.addWidget(QLabel("<b>Жыйынтыктар</b>"))
-        self.lbl_info = QLabel("Инструкция: l маанисин коюп, маятникти иштетиңиз, T мезгилин өлчөңүз.")
-        self.lbl_info.setWordWrap(True)
-        right.addWidget(self.lbl_info)
-        right.addStretch(1)
-
-        self.random_experiment()
-        self.ui_timer = QTimer(self)
-        self.ui_timer.timeout.connect(self._update_ui)
-        self.ui_timer.start(200)
-
-    def apply_params(self):
-        try:
-            l = float(self.input_l.text()) if self.input_l.text().strip() else self.pend.l_m
-            theta = float(self.input_theta.text()) if self.input_theta.text().strip() else math.degrees(self.pend.theta)
-            gmodel = float(self.input_gmodel.text()) if self.input_gmodel.text().strip() else self.pend.g_model
-        except Exception:
-            # КОТОРМО: Ошибка -> Ката
-            QMessageBox.warning(self, "Ката", "l, θ жана g үчүн сан маанилерин киргизиңиз.")
-            return
-        self.pend.set_params(l_m=l, theta_deg=theta, g_model=gmodel)
-        # КОТОРМО: Параметры применены -> Параметрлер колдонулду
-        self.lbl_info.setText("Параметрлер колдонулду. «Баштоо» баскычын басыңыз.")
-        self._update_ui()
-
-    def start_pendulum(self):
-        if not self.chk_manual.isChecked():
-            self.pend.start_measure()
-        # КОТОРМО: Маятник запущен -> Маятник иштеди
-        self.lbl_info.setText("Маятник иштеди.")
-        self._update_ui()
-
-    def stop_pendulum(self):
-        self.pend.stop_measure()
-        # КОТОРМО: Маятник остановлен -> Маятник токтоду
-        self.lbl_info.setText("Маятник токтоду.")
-        self._update_ui()
-
-    def reset_motion(self):
-        self.pend.reset_motion()
-        # КОТОРМО: Движение сброшено -> Кыймыл башынан башталды
-        self.lbl_info.setText("Кыймыл башынан башталды.")
-        self._update_ui()
-
-    def measure(self):
-        if self.chk_manual.isChecked():
-            self.lbl_info.setText("Кол режими: T талаасы автоматтык толтурулбайт.")
-            return
-        try:
-            n = int(self.input_n.text()) if self.input_n.text().strip() else 10
-        except Exception:
-            n = 10
-        T0 = 2 * math.pi * math.sqrt(self.pend.l_m / self.pend.g_model)
-        total_time = n * T0 * (1 + random.uniform(-0.01, 0.01))
-        T_meas = total_time / n
-        self.input_T.setText(f"{T_meas:.4f}")
-        # КОТОРМО: Измерение... -> Өлчөө (имитация):
-        self.lbl_info.setText(f"Өлчөө (имитация): {n} термелүү убактысы ≈ {total_time:.3f} с, T ≈ {T_meas:.4f} с.")
-        self._update_ui()
-
-    def check(self):
-        try:
-            T_user = float(self.input_T.text())
-            g_user = float(self.input_g_user.text())
-            l = float(self.input_l.text()) if self.input_l.text().strip() else self.pend.l_m
-        except Exception:
-            QMessageBox.warning(self, "Ката", "T, g жана l маанилерин киргизиңиз.")
-            return
-        if T_user <= 0:
-            QMessageBox.information(self, "Маалымат", "T оң сан болушу керек.")
-            return
-        g_calc = 4 * math.pi**2 * l / (T_user**2)
-        g_true = self.pend.g_model
-        tol_calc = max(0.03 * abs(g_calc), 0.01)
-        tol_true = max(0.05 * abs(g_true), 0.05)
-        ok_user = abs(g_user - g_calc) <= tol_calc
-        ok_model = abs(g_calc - g_true) <= tol_true
-        lines = []
-        if ok_user:
-            lines.append("✅ Сиздин g эсебиңиз туура.")
+    def toggle_timer_text(self):
+        self.pendulum.toggle_stopwatch()
+        if self.pendulum.stopwatch_running:
+            self.btn_timer.setText("ТОКТОТУУ")
+            self.btn_timer.setStyleSheet("background-color: #F44336; color: white; font-weight: bold;")
         else:
-            lines.append(f"❌ Сиздин g эсебиңиз ката. g_эсеп = {g_calc:.4f} м/с².")
-        if ok_model:
-            lines.append("✅ Чыныгы мааниге жакын.")
+            self.btn_timer.setText("БАШТОО")
+            self.btn_timer.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+
+    def new_experiment(self):
+        # ЭМИ БУЛ ЖЕРДЕ G ДАГЫ, L ДАГЫ РАНДОМ!
+        # Бизге G белгилүү болушу шарт эмес, биз жыштыкты өлчөйбүз.
+        # Бул Ай, Марс же Юпитер болушу мүмкүн.
+        
+        l = random.uniform(0.5, 1.5) # Узундук (м)
+        g = random.uniform(3.0, 20.0) # Тартылуу күчү (м/с2) - РАНДОМ
+        
+        self.pendulum.set_physics(l, g)
+        
+        # Чыныгы жыштыкты эсептеп алабыз (Текшерүү үчүн)
+        # T = 2*pi*sqrt(l/g)
+        # Freq = 1/T = (1 / 2*pi) * sqrt(g/l)
+        true_T = 2 * math.pi * math.sqrt(l / g)
+        self.true_freq = 1.0 / true_T
+        
+        self.in_t.clear(); self.in_freq.clear()
+        self.pendulum.reset_stopwatch()
+        self.btn_timer.setText("2. Секундомер (Старт/Стоп)")
+        self.btn_timer.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold;")
+        
+        QMessageBox.information(self, "Жаңы", "Жаңы шарттар түзүлдү (Башка планета болушу мүмкүн).\nМаятникти термелтип, жыштыгын өлчөңүз.")
+
+    def check_answer(self):
+        try:
+            val = float(self.in_freq.text())
+        except:
+            QMessageBox.warning(self, "Ката", "Сан жазыңыз!")
+            return
+            
+        # Каталык чеги: Секундомерди кол менен басканда реакция убактысы бар.
+        # Мисалы: 10 термелүү 20сек болсо, адам 19.5 же 20.5 басышы мүмкүн.
+        # Бул болжол менен 5-7% каталык.
+        error_percent = abs(val - self.true_freq) / self.true_freq * 100
+        
+        if error_percent < 8.0:
+            QMessageBox.information(self, "Туура", f"✅ Азаматсыз! Сиздин жыштык: {val:.3f} Гц\n(Чыныгы маани: {self.true_freq:.3f} Гц)")
         else:
-            lines.append(f"❌ Чыныгы мааниден айырмаланат: g = {g_true:.4f} м/с² ( piela ±{tol_true:.2f}).")
-        self.lbl_info.setText("\n".join(lines))
-
-    def show_answer(self):
-        T0 = 2 * math.pi * math.sqrt(self.pend.l_m / self.pend.g_model)
-        self.input_T.setText(f"{T0:.4f}")
-        g_calc = 4 * math.pi**2 * self.pend.l_m / (T0**2)
-        self.input_g_user.setText(f"{g_calc:.4f}")
-        self.lbl_info.setText("Туура маанилер көрсөтүлдү.")
-        self._update_ui()
-
-    def random_experiment(self):
-        l = random.uniform(0.2, 2.0)
-        theta = random.uniform(5.0, 18.0)
-        gmodel = random.uniform(9.78, 9.83)
-        self.input_l.setText(f"{l:.3f}")
-        self.input_theta.setText(f"{theta:.1f}")
-        self.input_gmodel.setText(f"{gmodel:.3f}")
-        self.pend.set_params(l_m=l, theta_deg=theta, g_model=gmodel)
-        self.input_T.clear(); self.input_g_user.clear(); self.input_n.clear()
-        self.lbl_info.setText("Жаңы тажрыйба даярдалды. «Баштоо», анан «Өлчөө» баскычын басыңыз.")
-        self._update_ui()
-
-    def clear_fields(self):
-        self.input_T.clear(); self.input_g_user.clear()
-        self.lbl_info.setText("Тазаланды.")
-        self._update_ui()
-
-    def _update_ui(self):
-        pass
+            QMessageBox.warning(self, "Ката", f"❌ Туура эмес.\nСиздин жооп: {val:.3f} Гц\nЧыныгы маани: {self.true_freq:.3f} Гц\n\nСекундомерди тагыраак иштетиңиз.")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    win = LabPendulumApp()
+    app.setStyle("Fusion")
+    win = LabFrequencyApp()
     win.show()
     sys.exit(app.exec())

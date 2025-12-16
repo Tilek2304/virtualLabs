@@ -1,396 +1,313 @@
-# lab_young_spring.py
-# Требуется: pip install PySide6
-import sys, math, random
+import sys
+import math
+import random
+from statistics import mean
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QMessageBox, QFrame, QSlider, QCheckBox, QDoubleSpinBox
+    QPushButton, QLineEdit, QMessageBox, QFrame, QGroupBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QSlider
 )
-from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPolygonF
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient, QRadialGradient
 from PySide6.QtCore import Qt, QTimer, QPointF
 
-# Универсалдуу аналогдук прибор
-class MeterWidget(QFrame):
-    def __init__(self, kind="N", parent=None):
-        super().__init__(parent)
-        self.setMinimumSize(120, 120)
-        self.kind = kind
-        self.value = 0.0
-        self.max_display = 10.0
-
-    def set_value(self, val, vmax=None):
-        self.value = val if val is not None else 0.0
-        if vmax is not None:
-            self.max_display = max(1e-6, float(vmax))
-        self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-        cx, cy = w//2, h//2
-        R = min(w, h)//2 - 8
-        p.fillRect(self.rect(), QColor(250,250,250))
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(255,255,255))
-        p.drawEllipse(cx - R, cy - R, 2*R, 2*R)
-        p.setPen(QPen(Qt.black,1))
-        for ang in range(-60, 61, 10):
-            r = math.radians(ang)
-            p.drawLine(cx + int((R-8)*math.cos(r)), cy - int((R-8)*math.sin(r)),
-                       cx + int(R*math.cos(r)),       cy - int(R*math.sin(r)))
-        frac = 0.0
-        if self.max_display > 0:
-            frac = max(0.0, min(1.0, abs(self.value) / self.max_display))
-        ang = -60 + frac*120.0
-        r = math.radians(ang)
-        p.setPen(QPen(QColor(200,30,30),2))
-        p.drawLine(cx, cy, cx + int((R-14)*math.cos(r)), cy - int((R-14)*math.sin(r)))
-        p.setPen(QPen(Qt.black,2)); p.setFont(QFont("Sans",12,QFont.Bold))
-        p.drawText(cx-8, cy+6, self.kind)
-        p.setFont(QFont("Sans",9))
-        p.drawText(8, h-10, f"{self.value:.2f} {self.kind}")
-
-# Пружина жана динамометр (анимация)
+# ==========================================
+# ВИЗУАЛИЗАЦИЯ: Серпилгич (Пружина)
+# ==========================================
 class SpringWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(640, 420)
-        # Моделдин параметрлери
-        self.k_true = 50.0  # Н/м
-        self.rest_length = 120.0  # тынч абалдагы узундук (px)
-        self.mass_attached = 0.0  # кг
+        self.setMinimumSize(300, 550)
+        self.setStyleSheet("background-color: #fcfcfc; border: 1px solid #ccc; border-radius: 8px;")
+
+        # Физикалык параметрлер
+        self.px_per_cm = 15.0   # 1 см = 15 пиксель
+        self.natural_len_cm = 10.0
+        self.k = 50.0           # Н/м (жашыруун)
+        self.mass = 0.0         # кг
         self.g = 9.81
-        self.force_external = 0.0  # тышкы күч (Н)
-        # Визуалдык
-        self.current_length = self.rest_length
-        self.target_length = self.rest_length
+
+        # Анимация абалы
+        self.current_y = 0.0    # Учурдагы узундук (пиксель)
+        self.target_y = 0.0     # Максаттуу узундук
+        self.velocity = 0.0
+        
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self._tick)
-        self.timer.start(16)
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(20)
 
-    def set_params(self, k=None, rest_length=None):
-        if k is not None: self.k_true = float(k)
-        if rest_length is not None: self.rest_length = float(rest_length)
-        self.current_length = self.rest_length
-        self.target_length = self.rest_length
+        self.reset_spring()
+
+    def reset_spring(self):
+        # Баштапкы абал
+        natural_px = self.natural_len_cm * self.px_per_cm
+        self.current_y = natural_px
+        self.target_y = natural_px
+        self.velocity = 0.0
+
+    def set_experiment(self, k_val):
+        self.k = k_val
+        self.update_physics()
+
+    def set_mass(self, mass_g):
+        self.mass = mass_g / 1000.0 # грамм -> кг
+        self.update_physics()
+
+    def update_physics(self):
+        # Гук мыйзамы: F = k * x  =>  m*g = k * x  =>  x = (m*g)/k
+        if self.k <= 0: return
+        
+        extension_m = (self.mass * self.g) / self.k
+        extension_cm = extension_m * 100.0
+        extension_px = extension_cm * self.px_per_cm
+        
+        natural_px = self.natural_len_cm * self.px_per_cm
+        self.target_y = natural_px + extension_px
+
+    def animate(self):
+        # Жөнөкөй гармониялык кыймыл (өчүүчү)
+        force = (self.target_y - self.current_y) * 0.1 # Күч
+        self.velocity += force
+        self.velocity *= 0.85 # Сүрүлүү (өчүү)
+        self.current_y += self.velocity
+        
+        if abs(self.velocity) < 0.01 and abs(self.target_y - self.current_y) < 0.1:
+            self.current_y = self.target_y
+            self.velocity = 0
+            
         self.update()
 
-    def apply_mass(self, m):
-        self.mass_attached = float(m)
-        F = self.mass_attached * self.g
-        self.force_external = F
-        self._update_target_length()
-
-    def apply_force(self, F):
-        self.force_external = float(F)
-        self._update_target_length()
-
-    def _update_target_length(self):
-        px_per_N = 100.0
-        x_m = self.force_external / self.k_true if self.k_true != 0 else 0.0
-        x_px = x_m * px_per_N
-        self.target_length = self.rest_length + x_px
-        self.target_length = max(self.rest_length, min(self.rest_length + 600, self.target_length))
-        self.update()
-
-    def _tick(self):
-        d = self.target_length - self.current_length
-        self.current_length += d * 0.18
-        self.update()
+    def get_extension_cm(self):
+        natural_px = self.natural_len_cm * self.px_per_cm
+        diff_px = self.current_y - natural_px
+        return diff_px / self.px_per_cm
 
     def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        p.fillRect(self.rect(), QColor(250,250,250))
-
         cx = w // 2
-        top = 40
-        # Бекиткич
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(160,160,160))
-        p.drawRect(cx - 40, top - 12, 80, 12)
-        # Пружина
-        y0 = top + 6
-        y1 = int(top + self.current_length)
-        segments = 18
-        width = 40
-        p.setPen(QPen(QColor(120,60,20), 3))
-        pts = []
-        for i in range(segments + 1):
-            t = i / segments
-            x = cx + (math.sin(t * math.pi * 6) * (width * (1 - t*0.6)))
-            y = y0 + t * (y1 - y0)
-            pts.append((x, y))
-        for i in range(len(pts)-1):
-            p.drawLine(int(pts[i][0]), int(pts[i][1]), int(pts[i+1][0]), int(pts[i+1][1]))
+        top_y = 40
+
+        # 1. Сызгыч (Линейка)
+        ruler_x = 40
+        painter.setPen(QPen(Qt.black, 1))
+        painter.setFont(QFont("Arial", 8))
         
-        # Жүк (блок)
-        block_w, block_h = 120, 40
-        bx = cx - block_w//2
-        by = y1
-        p.setPen(QPen(Qt.black,2)); p.setBrush(QColor(200,200,220))
-        p.drawRect(bx, by, block_w, block_h)
-        p.setPen(QPen(Qt.black,1)); p.setFont(QFont("Sans",10))
-        p.drawText(bx + 8, by + 24, f"m = {self.mass_attached:.3f} кг")
+        # Сызгычтын башы пружинанын баштапкы узундугуна туура келет (0 см - пружинанын учу)
+        zero_y = top_y + self.natural_len_cm * self.px_per_cm
+        
+        for i in range(21): # 0дөн 20 см чейин
+            y = zero_y + i * self.px_per_cm
+            if y > h - 10: break
+            
+            # Чоң сызык
+            painter.drawLine(ruler_x, int(y), ruler_x + 15, int(y))
+            painter.drawText(ruler_x - 30, int(y) + 5, f"{i}")
+            
+            # Кичине сызыктар (мм)
+            for j in range(1, 5):
+                sub_y = y + j * (self.px_per_cm / 5)
+                painter.drawLine(ruler_x, int(sub_y), ruler_x + 8, int(sub_y))
 
-        # Текст
-        px_per_N = 100.0
-        x_px = self.current_length - self.rest_length
-        x_m = x_px / px_per_N
-        F_now = self.force_external
-        # КОТОРМО: k (модель) -> k (чыныгы)
-        p.drawText(12, 20, f"k (чыныгы) = {self.k_true:.2f} Н/м")
-        p.drawText(12, 40, f"F = {F_now:.3f} Н")
-        p.drawText(12, 60, f"x = {x_m:.4f} м (≈{x_px:.1f} px)")
+        painter.drawText(ruler_x - 35, int(zero_y) - 15, "см")
 
-class LabYoungApp(QWidget):
+        # 2. Пружина
+        painter.setPen(QPen(QColor(80, 80, 80), 3))
+        
+        # Пружинанын илмеги
+        painter.drawLine(cx - 20, top_y, cx + 20, top_y) # Төбөсү
+        
+        # Зигзаг
+        coils = 15
+        spring_h = self.current_y
+        step = spring_h / coils
+        
+        path = list()
+        path.append(QPointF(cx, top_y))
+        
+        for i in range(coils):
+            y_curr = top_y + i * step
+            # Сол-Оң зигзаг
+            offset = 15 if i % 2 == 0 else -15
+            path.append(QPointF(cx + offset, y_curr + step/2))
+        
+        path.append(QPointF(cx, top_y + spring_h)) # Аягы
+        
+        for i in range(len(path) - 1):
+            painter.drawLine(path[i], path[i+1])
+
+        # 3. Жүк (Гиря)
+        if self.mass > 0:
+            bottom_y = top_y + spring_h
+            box_w = 50
+            box_h = 50 + (self.mass * 10) # Массага жараша чоңойот
+            if box_h > 100: box_h = 100
+            
+            # Илгич
+            painter.setPen(QPen(Qt.black, 2))
+            painter.drawLine(cx, int(bottom_y), cx, int(bottom_y + 15))
+            
+            # Жүк
+            grad = QLinearGradient(cx - box_w/2, 0, cx + box_w/2, 0)
+            grad.setColorAt(0, QColor(100, 100, 100))
+            grad.setColorAt(0.5, QColor(200, 200, 200)) # Металл жалтырагы
+            grad.setColorAt(1, QColor(80, 80, 80))
+            
+            painter.setBrush(grad)
+            painter.drawRect(int(cx - box_w/2), int(bottom_y + 15), int(box_w), int(box_h))
+            
+            # Массасын жазуу
+            painter.setPen(Qt.black)
+            painter.setFont(QFont("Arial", 10, QFont.Bold))
+            mass_g = int(self.mass * 1000)
+            painter.drawText(int(cx - box_w/2), int(bottom_y + 15), int(box_w), int(box_h), Qt.AlignCenter, f"{mass_g} г")
+            
+            # Көрсөткүч (стрелка)
+            painter.setPen(QPen(Qt.red, 2))
+            arrow_y = bottom_y
+            painter.drawLine(cx, int(arrow_y), ruler_x + 20, int(arrow_y))
+            painter.drawText(ruler_x + 25, int(arrow_y) + 5, "◄")
+
+
+# ==========================================
+# НЕГИЗГИ ТЕРЕЗЕ
+# ==========================================
+class LabSpringApp(QWidget):
     def __init__(self):
         super().__init__()
-        # КОТОРМО: Гук мыйзамы — k = F / x
-        self.setWindowTitle("Лабораториялык иш — Гук мыйзамы (k = F / x)")
-        self.setMinimumSize(1100, 700)
+        self.setWindowTitle("Лабораториялык иш №6: Гук мыйзамы")
+        self.resize(1100, 700)
+        self.setup_ui()
+        self.new_experiment()
 
+    def setup_ui(self):
         main = QHBoxLayout(self)
-        left = QVBoxLayout(); right = QVBoxLayout()
-        main.addLayout(left, 2); main.addLayout(right, 1)
 
+        # --- СОЛ ЖАК: Стенд ---
+        left_group = QGroupBox("Тажрыйба стенди")
+        left_layout = QVBoxLayout()
         self.spring = SpringWidget()
-        left.addWidget(self.spring)
+        left_layout.addWidget(self.spring)
+        left_group.setLayout(left_layout)
+        main.addWidget(left_group, 1)
 
-        meters = QHBoxLayout()
-        self.dynamometer = MeterWidget("N")
-        meters.addWidget(self.dynamometer)
-        left.addLayout(meters)
+        # --- ОҢ ЖАК: Башкаруу ---
+        right_panel = QVBoxLayout()
+        main.addLayout(right_panel, 1)
 
-        # Правая панель
-        # КОТОРМО: Заголовок
-        right.addWidget(QLabel("<b>Пружинанын параметрлери</b>"))
-        self.input_k = QLineEdit(); self.input_k.setPlaceholderText("k (Н/м) — моделдин катуулугу")
-        self.input_rest = QLineEdit(); self.input_rest.setPlaceholderText("Тынч абал узундугу (px)")
-        right.addWidget(self.input_k)
-        right.addWidget(self.input_rest)
+        # 1. Тапшырма
+        task_g = QGroupBox("Тапшырма")
+        task_l = QVBoxLayout()
+        task_l.addWidget(QLabel("1. Массаны өзгөртүп, пружинаны созуңуз."))
+        task_l.addWidget(QLabel("2. Сызгычтан узарууну (x) көрүңүз (0дөн баштап эсептеңиз)."))
+        task_l.addWidget(QLabel("3. Формула: F = k * x  (F = m * g)."))
+        task_l.addWidget(QLabel("4. Катуулукту табыңыз: k = (m * g) / x."))
+        task_g.setLayout(task_l)
+        right_panel.addWidget(task_g)
 
-        right.addSpacing(6)
-        # КОТОРМО: Күч / Масса
-        right.addWidget(QLabel("<b>Коюлган күч / масса</b>"))
-        # КОТОРМО: Задавать силу вручную -> Күчтү кол менен берүү
-        self.chk_force_mode = QCheckBox("Күчтү кол менен берүү (болбосо — масса кошуу)")
-        right.addWidget(self.chk_force_mode)
+        # 2. Башкаруу (Масса)
+        ctrl_g = QGroupBox("Жүктү өзгөртүү")
+        ctrl_l = QVBoxLayout()
         
-        mass_row = QHBoxLayout()
-        self.input_mass = QLineEdit(); self.input_mass.setPlaceholderText("m (кг) — жүктүн массасы")
-        mass_row.addWidget(self.input_mass)
-        # КОТОРМО: Добавить груз -> Жүктү кошуу
-        btn_add_mass = QPushButton("Жүктү кошуу")
-        btn_add_mass.clicked.connect(self.add_mass)
-        mass_row.addWidget(btn_add_mass)
-        right.addLayout(mass_row)
+        self.lbl_mass = QLabel("Масса: 0 г")
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(0, 500) # 0дөн 500г чейин
+        self.slider.setValue(0)
+        self.slider.setTickPosition(QSlider.TicksBelow)
+        self.slider.setTickInterval(50)
+        self.slider.valueChanged.connect(self.update_mass)
         
-        # КОТОРМО: Күч F (Н) — жылдыргыч
-        right.addWidget(QLabel("Күч F (Н) — жылдыргыч"))
-        self.slider_F = QSlider(Qt.Horizontal)
-        self.slider_F.setRange(0, 500)
-        self.slider_F.setValue(0)
-        self.slider_F.valueChanged.connect(self.on_slider_F)
-        right.addWidget(self.slider_F)
-        self.lbl_F = QLabel("F = 0.00 Н")
-        right.addWidget(self.lbl_F)
+        ctrl_l.addWidget(self.lbl_mass)
+        ctrl_l.addWidget(self.slider)
+        ctrl_g.setLayout(ctrl_l)
+        right_panel.addWidget(ctrl_g)
 
-        right.addSpacing(6)
-        right.addWidget(QLabel("<b>Режим</b>"))
-        # КОТОРМО: Ручной режим -> Кол менен жазуу (авто толтуруу жок)
-        self.chk_manual = QCheckBox("Кол менен жазуу (авто толтуруу жок)")
-        right.addWidget(self.chk_manual)
-
-        right.addSpacing(6)
-        # КОТОРМО: Окуучунун жооптору
-        right.addWidget(QLabel("<b>Окуучунун жооптору</b>"))
-        self.input_F_meas = QLineEdit(); self.input_F_meas.setPlaceholderText("F (Н) — өлчөнгөн күч")
-        self.input_x_meas = QLineEdit(); self.input_x_meas.setPlaceholderText("x (м) — узаруу")
-        self.input_k_user = QLineEdit(); self.input_k_user.setPlaceholderText("k (Н/м) — сиздин эсептөө")
+        # 3. Киргизүү
+        inp_g = QGroupBox("Эсептөө")
+        inp_l = QVBoxLayout()
         
-        right.addWidget(self.input_F_meas)
-        right.addWidget(self.input_x_meas)
-        right.addWidget(self.input_k_user)
+        self.in_m = QLineEdit(); self.in_m.setPlaceholderText("Масса m (кг!)")
+        self.in_x = QLineEdit(); self.in_x.setPlaceholderText("Узаруу x (метр!)")
+        self.in_k = QLineEdit(); self.in_k.setPlaceholderText("Катуулук k (Н/м)")
+        
+        inp_l.addWidget(QLabel("Масса (кг):"))
+        inp_l.addWidget(self.in_m)
+        inp_l.addWidget(QLabel("Узаруу (метр):"))
+        inp_l.addWidget(self.in_x)
+        inp_l.addWidget(QLabel("Катуулук (k):"))
+        inp_l.addWidget(self.in_k)
+        inp_g.setLayout(inp_l)
+        right_panel.addWidget(inp_g)
 
-        # Кнопки
-        # КОТОРМО: Применить -> Колдонуу
-        btn_apply = QPushButton("Колдонуу")
-        btn_apply.clicked.connect(self.apply_params)
-        # КОТОРМО: Измерить -> Өлчөө (көрсөткүчтөрдү алуу)
-        btn_measure = QPushButton("Өлчөө (көрсөткүчтөрдү алуу)")
-        btn_measure.clicked.connect(self.measure)
-        # КОТОРМО: Проверить k -> k текшерүү
-        btn_check = QPushButton("k текшерүү")
-        btn_check.clicked.connect(self.check)
-        # КОТОРМО: Показать ответ -> Жоопту көрсөтүү
-        btn_show = QPushButton("Жоопту көрсөтүү")
-        btn_show.clicked.connect(self.show_answer)
-        # КОТОРМО: Случайный эксперимент -> Кокустан тандалган тажрыйба
-        btn_random = QPushButton("Кокустан тандалган тажрыйба")
-        btn_random.clicked.connect(self.random_experiment)
-        # КОТОРМО: Сброс -> Кайра баштоо
-        btn_reset = QPushButton("Кайра баштоо")
-        btn_reset.clicked.connect(self.reset_all)
+        # 4. Баскычтар
+        btn_check = QPushButton("Текшерүү жана Жазуу")
+        btn_check.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        btn_check.clicked.connect(self.check_answer)
+        
+        btn_new = QPushButton("Жаңы пружина (Жаңы k)")
+        btn_new.clicked.connect(self.new_experiment)
+        
+        right_panel.addWidget(btn_check)
+        right_panel.addWidget(btn_new)
 
-        right.addWidget(btn_apply)
-        right.addWidget(btn_measure)
-        right.addWidget(btn_check)
-        right.addWidget(btn_show)
-        right.addWidget(btn_random)
-        right.addWidget(btn_reset)
+        # 5. Таблица
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["m (кг)", "x (м)", "k (Н/м)"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        right_panel.addWidget(QLabel("Жыйынтыктар:"))
+        right_panel.addWidget(self.table)
+        
+        self.lbl_res = QLabel("")
+        right_panel.addWidget(self.lbl_res)
 
-        right.addSpacing(8)
-        # КОТОРМО: Результаты -> Жыйынтыктар
-        right.addWidget(QLabel("<b>Жыйынтыктар</b>"))
-        self.lbl_Fnow = QLabel("F (модель): — Н")
-        self.lbl_xnow = QLabel("x (модель): — м")
-        self.lbl_feedback = QLabel("")
-        self.lbl_feedback.setWordWrap(True)
-        right.addWidget(self.lbl_Fnow)
-        right.addWidget(self.lbl_xnow)
-        right.addWidget(self.lbl_feedback)
-        right.addStretch(1)
+    def new_experiment(self):
+        # Жаңы кокустук k (20дан 100гө чейин)
+        self.true_k = random.randint(20, 100)
+        self.spring.set_experiment(self.true_k)
+        
+        self.slider.setValue(0)
+        self.in_m.clear()
+        self.in_x.clear()
+        self.in_k.clear()
+        self.table.setRowCount(0)
+        self.lbl_res.setText(f"--- Жаңы пружина берилди ---")
 
-        self.random_experiment()
-        self.ui_timer = QTimer(self)
-        self.ui_timer.timeout.connect(self._update_meter)
-        self.ui_timer.start(150)
+    def update_mass(self):
+        val = self.slider.value()
+        self.lbl_mass.setText(f"Масса: {val} г")
+        self.spring.set_mass(val)
+        
+        # Автоматтык түрдө талаага жазуу (ыңгайлуулук үчүн)
+        self.in_m.setText(str(val / 1000.0))
+        
+        # Учурдагы узарууну алуу (сантиметр -> метр)
+        x_cm = self.spring.get_extension_cm()
+        self.in_x.setText(f"{x_cm / 100.0:.3f}")
 
-    def on_slider_F(self, val):
-        F = val / 100.0
-        self.lbl_F.setText(f"F = {F:.2f} Н")
-        if self.chk_force_mode.isChecked():
-            self.spring.apply_force(F)
-            self._update_labels()
-
-    def apply_params(self):
+    def check_answer(self):
         try:
-            k = float(self.input_k.text()) if self.input_k.text().strip() else self.spring.k_true
-            rest = float(self.input_rest.text()) if self.input_rest.text().strip() else self.spring.rest_length
-        except Exception:
-            # КОТОРМО: Ошибка -> Ката
-            QMessageBox.warning(self, "Ката", "k жана узундук үчүн сан маанилерин киргизиңиз.")
+            u_k = float(self.in_k.text())
+        except:
+            QMessageBox.warning(self, "Ката", "Сандарды туура киргизиңиз!")
             return
-        self.spring.set_params(k=k, rest_length=rest)
-        self.input_F_meas.clear(); self.input_x_meas.clear(); self.input_k_user.clear()
-        # КОТОРМО: Параметры применены -> Параметрлер колдонулду
-        self.lbl_feedback.setText("Параметрлер колдонулду. Жүктү кошуңуз же күчтү жылдыргыч менен өзгөртүңүз.")
-        self._update_labels()
 
-    def add_mass(self):
-        try:
-            m = float(self.input_mass.text())
-        except Exception:
-            QMessageBox.warning(self, "Ката", "Массаны сан түрүндө киргизиңиз (кг).")
-            return
-        if self.chk_force_mode.isChecked():
-            QMessageBox.information(self, "Маалымат", "Адегенде «Күчтү кол менен берүү» режимин өчүрүңүз.")
-            return
-        self.spring.apply_mass(m)
-        self.lbl_feedback.setText(f"Жүк m = {m:.3f} кг кошулду. «Өлчөө» баскычын басыңыз.")
-        self._update_labels()
-
-    def measure(self):
-        if self.chk_manual.isChecked():
-            self.lbl_feedback.setText("Кол режими: талаалар автоматтык толтурулбайт.")
-            self._update_labels()
-            return
-        
-        px_per_N = 100.0
-        x_px = self.spring.current_length - self.spring.rest_length
-        x_m = x_px / px_per_N
-        F = self.spring.force_external
-        
-        F_meas = F * (1 + random.uniform(-0.02, 0.02))
-        x_meas = x_m * (1 + random.uniform(-0.015, 0.015))
-        
-        self.input_F_meas.setText(f"{F_meas:.3f}")
-        self.input_x_meas.setText(f"{x_meas:.4f}")
-        self.lbl_feedback.setText("Көрсөткүчтөр жазылды (кичине ката менен).")
-        self._update_labels()
-
-    def check(self):
-        try:
-            F_user = float(self.input_F_meas.text())
-            x_user = float(self.input_x_meas.text())
-            k_user = float(self.input_k_user.text())
-        except Exception:
-            QMessageBox.warning(self, "Ката", "F, x, k маанилерин киргизиңиз.")
-            return
-        
-        if abs(x_user) < 1e-6:
-            QMessageBox.information(self, "Маалымат", "x өтө аз.")
-            return
+        # Текшерүү (5% каталыкка жол берилет)
+        error_margin = self.true_k * 0.05
+        if abs(u_k - self.true_k) <= error_margin:
+            self.lbl_res.setText(f"<span style='color:green'><b>ТУУРА! k ≈ {self.true_k} Н/м</b></span>")
             
-        k_calc = F_user / x_user
-        k_true = self.spring.k_true
-        tol = max(0.03 * abs(k_true), 1e-3)
-        ok_user = abs(k_user - k_calc) <= max(0.02 * abs(k_calc), 1e-3)
-        ok_true = abs(k_calc - k_true) <= tol
-        
-        lines = []
-        if ok_user:
-            lines.append("✅ Сиздин k эсебиңиз туура.")
+            # Таблицага кошуу
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(self.in_m.text()))
+            self.table.setItem(row, 1, QTableWidgetItem(self.in_x.text()))
+            self.table.setItem(row, 2, QTableWidgetItem(str(u_k)))
         else:
-            lines.append(f"❌ Сиздин k эсебиңиз ката. k_эсеп = {k_calc:.3f} Н/м.")
-        if ok_true:
-            lines.append("✅ Чыныгы мааниге жакын.")
-        else:
-            lines.append(f"❌ Чыныгы мааниден айырмаланат: k = {k_true:.3f} Н/м.")
-        self.lbl_feedback.setText("\n".join(lines))
-
-    def show_answer(self):
-        px_per_N = 100.0
-        x_px = self.spring.current_length - self.spring.rest_length
-        x_m = x_px / px_per_N
-        F = self.spring.force_external
-        if abs(x_m) < 1e-9:
-            QMessageBox.information(self, "Маалымат", "x жок.")
-            return
-        k_calc = F / x_m
-        self.input_F_meas.setText(f"{F:.3f}")
-        self.input_x_meas.setText(f"{x_m:.4f}")
-        self.input_k_user.setText(f"{k_calc:.3f}")
-        self.lbl_feedback.setText("Туура маанилер көрсөтүлдү.")
-        self._update_labels()
-
-    def random_experiment(self):
-        k = random.uniform(10.0, 200.0)
-        rest = random.uniform(80.0, 160.0)
-        m = random.uniform(0.02, 0.8)
-        self.input_k.setText(f"{k:.2f}")
-        self.input_rest.setText(f"{rest:.1f}")
-        self.input_mass.setText(f"{m:.3f}")
-        self.spring.set_params(k=k, rest_length=rest)
-        self.spring.apply_mass(m)
-        self.input_F_meas.clear(); self.input_x_meas.clear(); self.input_k_user.clear()
-        self.lbl_feedback.setText("Жаңы тажрыйба даярдалды.")
-        self._update_labels()
-
-    def reset_all(self):
-        self.input_k.clear(); self.input_rest.clear(); self.input_mass.clear()
-        self.input_F_meas.clear(); self.input_x_meas.clear(); self.input_k_user.clear()
-        self.chk_force_mode.setChecked(False); self.chk_manual.setChecked(False)
-        self.spring.set_params(k=50.0, rest_length=120.0)
-        self.spring.mass_attached = 0.0
-        self.spring.force_external = 0.0
-        self.spring.current_length = self.spring.rest_length
-        self.spring.target_length = self.spring.rest_length
-        self.lbl_feedback.setText("Тазаланды.")
-        self._update_labels()
-
-    def _update_meter(self):
-        F_now = self.spring.force_external
-        self.dynamometer.set_value(F_now, vmax=max(0.1, max(1.0, F_now*1.5)))
-        px_per_N = 100.0
-        x_px = self.spring.current_length - self.spring.rest_length
-        x_m = x_px / px_per_N
-        self.lbl_Fnow.setText(f"F (модель): {F_now:.3f} Н")
-        self.lbl_xnow.setText(f"x (модель): {x_m:.4f} м")
-
-    def _update_labels(self):
-        self._update_meter()
+            self.lbl_res.setText(f"<span style='color:red'><b>КАТА. Туура жооп: {self.true_k} Н/м</b></span>")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    win = LabYoungApp()
+    app.setStyle("Fusion")
+    win = LabSpringApp()
     win.show()
     sys.exit(app.exec())

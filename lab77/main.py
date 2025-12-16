@@ -1,448 +1,287 @@
-# lab_archimedes.py
-# Требуется: pip install PySide6
 import sys
-import random
 import math
+import random
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QMessageBox, QFrame, QSizePolicy
+    QPushButton, QLineEdit, QMessageBox, QFrame, QGroupBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QSlider, QTextEdit
 )
-from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPainterPath
-from PySide6.QtCore import Qt, QTimer, QPointF
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF
 
-G = 9.81  # м/с^2
-RHO_WATER = 1.0  # г/мл (школьные единицы)
-
-# ---------------------------
-# Виджет мензурки (уровень жидкости) с видимым телом
-# ---------------------------
-class MenzurkaWidget(QFrame):
-    def __init__(self, total_volume_ml, liquid_volume_ml, divisions, body_volume_ml=0, parent=None):
-        super().__init__(parent)
-        self.total_volume = total_volume_ml
-        self.V_liquid = liquid_volume_ml
-        self.divisions = divisions
-        self.body_volume = body_volume_ml
-        self.body_submerged = False
-
-        self.setMinimumSize(320, 420)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        self.phase = 0.0
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.on_timer)
-        self.timer.start(30)
-
-    def on_timer(self):
-        self.phase += 0.12
-        if self.phase > 2 * math.pi:
-            self.phase -= 2 * math.pi
-        self.update()
-
-    def set_liquid_volume(self, V):
-        self.V_liquid = max(0.0, min(self.total_volume, V))
-        self.update()
-
-    def set_body(self, V_body_ml, submerged: bool):
-        self.body_volume = V_body_ml
-        self.body_submerged = submerged
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        w = self.width(); h = self.height()
-        margin = 18
-        cyl_w = int(w * 0.36)
-        cyl_h = int(h * 0.78)
-        cyl_x = margin; cyl_y = margin
-
-        # outer glass
-        painter.setPen(QPen(Qt.black, 2))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(cyl_x, cyl_y, cyl_w, cyl_h, 8, 8)
-
-        inner_x = cyl_x + 8
-        inner_w = cyl_w - 16
-        inner_y = cyl_y + 8
-        inner_h = cyl_h - 16
-
-        V_current = self.V_liquid
-        liquid_height = inner_h * (V_current / self.total_volume)
-        liquid_y = inner_y + inner_h - liquid_height
-
-        # draw liquid with wavy meniscus
-        path = QPainterPath()
-        left = inner_x; right = inner_x + inner_w; bottom = inner_y + inner_h
-        steps = 60
-        wave_ampl = 3.0
-        path.moveTo(left, bottom)
-        for i in range(steps + 1):
-            t = i / steps
-            x = left + t * inner_w
-            phase = self.phase + t * 2 * math.pi
-            y = liquid_y + math.sin(phase) * (wave_ampl * (1 - abs(2*t-1)))
-            path.lineTo(x, y)
-        path.lineTo(right, bottom)
-        path.closeSubpath()
-
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(100,150,255,220))
-        painter.drawPath(path)
-
-        # horizontal level line
-        painter.setPen(QPen(QColor(40,80,160,200), 1))
-        painter.drawLine(left, liquid_y, right, liquid_y)
-
-        # divisions and labels (smaller font)
-        painter.setPen(QPen(Qt.black, 1))
-        font_size = max(6, int(w * 0.014))
-        painter.setFont(QFont("Sans", font_size))
-        for i in range(self.divisions + 1):
-            t = i / self.divisions
-            y_tick = inner_y + inner_h - t * inner_h
-            if self.divisions >= 10 and i % (self.divisions // 10) == 0:
-                tick_len = 12
-            elif self.divisions >= 5 and i % (self.divisions // 5) == 0:
-                tick_len = 8
-            else:
-                tick_len = 5
-            painter.drawLine(inner_x - tick_len, y_tick, inner_x, y_tick)
-            value = int(round(t * self.total_volume))
-            painter.drawText(inner_x + inner_w + 10, y_tick + 4, f"{value}")
-
-        # draw body: visible either to the right (not submerged) or overlapping liquid (submerged)
-        # compute a reasonable radius from volume: scale V (мл) to pixels
-        # simple heuristic: radius_px ~ cbrt(V) scaled
-        if self.body_volume > 0:
-            # cube-root scaling for visual proportionality
-            radius_px = max(40, min(int((self.body_volume ** (1/3.0)) * 2.2), int(inner_w * 0.45)))
-            body_cx = inner_x + inner_w / 2
-            if self.body_submerged:
-                # center slightly below surface so body appears immersed
-                body_cy = liquid_y + radius_px * 0.6
-            else:
-                # show body to the right of menzurka (outside) slightly above base
-                body_cx = inner_x + inner_w + radius_px + 40
-                body_cy = inner_y + inner_h - radius_px - 6
-            # draw shadow under body
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(0,0,0,40))
-            painter.drawEllipse(QPointF(body_cx+3, body_cy+4), radius_px+4, radius_px+4)
-            # draw body (solid)
-            painter.setBrush(QColor(180,80,80))
-            painter.setPen(QPen(Qt.black, 1))
-            painter.drawEllipse(QPointF(body_cx, body_cy), radius_px, radius_px)
-            # if submerged, draw a faint overlay to show it's under liquid
-            if self.body_submerged:
-                painter.setBrush(QColor(100,150,255,80))
-                painter.setPen(Qt.NoPen)
-                # draw a clipped ellipse for the submerged portion (simple visual)
-                clip_path = QPainterPath()
-                clip_path.addRect(inner_x, inner_y, inner_w, inner_h)
-                painter.setClipPath(clip_path)
-                painter.drawEllipse(QPointF(body_cx, body_cy), radius_px, radius_px)
-                painter.setClipping(False)
-
-        # base
-        base_w = int(cyl_w * 0.9)
-        base_x = cyl_x + (cyl_w - base_w) // 2
-        base_y = cyl_y + cyl_h + 8
-        painter.setPen(QPen(Qt.black, 2))
-        painter.setBrush(QColor(220,220,220))
-        painter.drawRoundedRect(base_x, base_y, base_w, 12, 4, 4)
-
-        # info text
-        painter.setPen(QPen(Qt.black, 1))
-        painter.setFont(QFont("Sans", max(9, int(w * 0.035)), QFont.Bold))
-        painter.drawText(cyl_x, cyl_y - 8, "мл")
-
-# ---------------------------
-# Виджет динамометра (цифровой показатель)
-# ---------------------------
-class DynamometerWidget(QFrame):
+class ExperimentWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(320, 120)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.force_N = 0.0  # текущее показание в ньютонах
+        self.setMinimumSize(350, 500)
+        self.setStyleSheet("background-color: #fcfcfc; border: 1px solid #ccc; border-radius: 8px;")
 
-    def set_force(self, F):
-        self.force_N = F
+        self.px_per_cm = 10.0
+        self.g = 9.81
+        self.rho_water = 1000.0 
+
+        self.body_mass = 0.2    
+        self.body_vol = 0.0001  
+        
+        self.lift_h = 0.0       
+        self.current_force = 0.0
+
+    def set_experiment(self, mass_kg, vol_m3):
+        self.body_mass = mass_kg
+        self.body_vol = vol_m3
+        self.lift_h = 0.0
+        self.update()
+
+    def set_lift(self, value):
+        self.lift_h = value / 100.0
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        w = self.width(); h = self.height()
-        painter.fillRect(self.rect(), QColor(245,245,245))
-        # рамка
-        painter.setPen(QPen(Qt.black, 2))
-        painter.setBrush(QColor(230,230,230))
-        painter.drawRoundedRect(8, 8, w-16, h-16, 6, 6)
-        # текст
-        painter.setPen(QPen(Qt.black, 1))
-        painter.setFont(QFont("Sans", 18, QFont.Bold))
-        painter.drawText(20, 40, "Динамометр")
-        painter.setFont(QFont("Sans", 20))
-        painter.drawText(20, 80, f"{self.force_N:.3f} Н")
+        w, h = self.width(), self.height()
+        cx = w // 2 
 
-# ---------------------------
-# Главное приложение (без таблицы)
-# ---------------------------
+        # 1. ШТАТИВ
+        stand_top_y = 20
+        stand_base_y = h - 20
+        
+        painter.setPen(QPen(QColor(80, 80, 80), 4))
+        painter.drawLine(cx, stand_top_y, cx, stand_base_y) 
+        painter.drawLine(cx - 80, stand_base_y, cx + 80, stand_base_y) 
+        
+        bracket_y = stand_top_y + 40
+        painter.drawLine(cx, bracket_y, cx + 70, bracket_y) 
+
+        # 2. МЕНЗУРКА
+        beaker_w = 120
+        beaker_h = 180
+        beaker_x = cx + 10
+        # Привязываем мензурку к низу штатива
+        beaker_y = stand_base_y - beaker_h - 10 
+        
+        painter.setPen(QPen(Qt.black, 2))
+        painter.setBrush(QColor(240, 248, 255, 100))
+        painter.drawRect(beaker_x, beaker_y, beaker_w, beaker_h)
+        
+        # 3. РАСЧЕТ ПОЗИЦИИ ГРУЗА
+        hook_x = cx + 70
+        hook_y = bracket_y
+        
+        dyn_h = 60
+        dyn_y_pos = hook_y + 20 
+        
+        string_start_y = dyn_y_pos + dyn_h
+        body_h = 50
+        
+        # Рассчитываем длину нити так, чтобы груз доставал до дна мензурки
+        max_string_len = (beaker_y + beaker_h - body_h - 5) - string_start_y
+        # Минимальная длина - чтобы висел над мензуркой
+        min_string_len = (beaker_y - body_h - 20) - string_start_y
+        if min_string_len < 20: min_string_len = 20
+        
+        current_string_len = min_string_len + self.lift_h * (max_string_len - min_string_len)
+        
+        body_y = string_start_y + current_string_len
+        body_x = hook_x
+        body_r = 25
+
+        # 4. УРОВЕНЬ ВОДЫ
+        water_surface_base_y = beaker_y + beaker_h / 2 + 20
+        body_bottom_y = body_y + body_h
+        
+        submerged_px = max(0, body_bottom_y - water_surface_base_y)
+        submerged_px = min(submerged_px, body_h) 
+        
+        submerged_ratio = submerged_px / body_h
+        
+        water_rise = submerged_ratio * 15 
+        current_water_y = water_surface_base_y - water_rise
+        
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(0, 150, 255, 150))
+        painter.drawRect(beaker_x + 2, int(current_water_y), beaker_w - 4, int(beaker_y + beaker_h - current_water_y - 2))
+        
+        painter.setPen(QPen(Qt.black, 1))
+        for i in range(1, 8):
+            y_mark = beaker_y + beaker_h - i * 20
+            painter.drawLine(beaker_x, int(y_mark), beaker_x + 8, int(y_mark))
+
+        # 5. ГРУЗ
+        painter.setPen(QPen(Qt.black, 1))
+        painter.setBrush(QColor(150, 100, 50)) 
+        painter.drawRect(int(body_x - body_r), int(body_y), int(body_r*2), int(body_h))
+        
+        painter.setPen(QPen(Qt.black, 2))
+        painter.drawLine(int(hook_x), int(string_start_y), int(hook_x), int(body_y)) 
+
+        # 6. ДИНАМОМЕТР
+        dyn_w = 36
+        dyn_x = hook_x - dyn_w/2
+        
+        painter.setPen(QPen(Qt.black, 2))
+        painter.setBrush(QColor(220, 220, 220))
+        painter.drawRect(int(dyn_x), int(dyn_y_pos), int(dyn_w), int(dyn_h))
+        
+        buoyant_force = self.rho_water * self.g * (self.body_vol * submerged_ratio)
+        gravity_force = self.body_mass * self.g
+        self.current_force = max(0, gravity_force - buoyant_force)
+        
+        painter.setPen(Qt.black)
+        painter.setFont(QFont("Arial", 9, QFont.Bold))
+        painter.drawText(int(dyn_x), int(dyn_y_pos), int(dyn_w), int(dyn_h), Qt.AlignCenter, f"{self.current_force:.2f}")
+        
+        painter.drawLine(int(hook_x), int(hook_y), int(hook_x), int(dyn_y_pos))
+
 class LabArchimedesApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная — Архимедова сила")
-        self.setMinimumSize(1200, 720)
+        self.setWindowTitle("Лабораторная работа №7: Закон Архимеда")
+        self.resize(1000, 650)
+        
+        self.true_vol_ml = 0
+        self.true_mass_g = 0
+        self.setup_ui()
+        self.new_experiment()
 
-        # генерация эксперимента
-        self._generate_experiment()
+    def setup_ui(self):
+        main = QHBoxLayout(self)
 
-        # состояние: объект может быть на столе или подвешен и погружён/непогружён
-        self.object_attached = False
-        self.object_submerged = False
+        # --- СЛЕВА: Стенд + Ползунок ---
+        left_group = QGroupBox("Стенд")
+        left_layout = QHBoxLayout() # Horizontal
+        
+        self.experiment = ExperimentWidget()
+        left_layout.addWidget(self.experiment, 1) 
+        
+        slider_container = QWidget()
+        slider_vbox = QVBoxLayout(slider_container)
+        slider_vbox.setContentsMargins(0, 20, 0, 20)
+        
+        lbl_up = QLabel("Вверх")
+        lbl_up.setAlignment(Qt.AlignCenter)
+        
+        self.slider = QSlider(Qt.Vertical)
+        self.slider.setRange(0, 100)
+        self.slider.setValue(0)
+        self.slider.setInvertedAppearance(True) 
+        self.slider.valueChanged.connect(self.experiment.set_lift)
+        
+        lbl_down = QLabel("Вниз")
+        lbl_down.setAlignment(Qt.AlignCenter)
+        
+        slider_vbox.addWidget(lbl_up)
+        slider_vbox.addWidget(self.slider, 1)
+        slider_vbox.addWidget(lbl_down)
+        
+        left_layout.addWidget(slider_container, 0)
+        
+        left_group.setLayout(left_layout)
+        main.addWidget(left_group, 4)
 
-        # GUI
-        main_layout = QHBoxLayout(self)
-        left_col = QVBoxLayout()
-        right_col = QVBoxLayout()
-        main_layout.addLayout(left_col, 1)
-        main_layout.addLayout(right_col, 0)
+        # --- СПРАВА: Управление ---
+        right_panel = QVBoxLayout()
+        main.addLayout(right_panel, 3)
 
-        # виджеты слева: мензурка + динамометр
-        self.menzurka = MenzurkaWidget(total_volume_ml=self.V_total, liquid_volume_ml=self.V_liquid, divisions=self.N, body_volume_ml=self.V_body)
-        self.dynam = DynamometerWidget()
-        left_col.addWidget(self.menzurka, 3)
-        left_col.addWidget(self.dynam, 0)
+        # 1. Задание
+        task_g = QGroupBox("Задание")
+        task_l = QVBoxLayout()
+        task_l.addWidget(QLabel("1. Измерьте вес в воздухе (P0)."))
+        task_l.addWidget(QLabel("2. Опустите груз полностью в воду (ползунок)."))
+        task_l.addWidget(QLabel("3. Измерьте вес в воде (P1)."))
+        task_l.addWidget(QLabel("4. Найдите силу Архимеда: Fa = P0 - P1."))
+        task_g.setLayout(task_l)
+        right_panel.addWidget(task_g)
 
-        # правая панель: инструкции, поля ввода
-        right_col.addWidget(QLabel("<b>Опыт: Архимедова сила</b>"))
-        info = QLabel(
-            "Измерьте силу, действующую на тело в воздухе и в воде.\n"
-            "F_A = F_air - F_water. Теоретически: F_A = ρ·g·V (ρ воды = 1.0 г/мл)."
-        )
-        info.setWordWrap(True)
-        right_col.addWidget(info)
+        # 2. Ввод
+        inp_g = QGroupBox("Ввод данных")
+        inp_l = QVBoxLayout()
+        
+        self.in_p0 = QLineEdit(); self.in_p0.setPlaceholderText("Вес в воздухе P0 (Н)")
+        self.in_p1 = QLineEdit(); self.in_p1.setPlaceholderText("Вес в воде P1 (Н)")
+        self.in_fa = QLineEdit(); self.in_fa.setPlaceholderText("Сила Архимеда Fa (Н)")
+        # self.in_v  = QLineEdit(); self.in_v.setPlaceholderText("Объем тела V (мл)")
+        
+        inp_l.addWidget(QLabel("Вес в воздухе (P0):"))
+        inp_l.addWidget(self.in_p0)
+        inp_l.addWidget(QLabel("Вес в воде (P1):"))
+        inp_l.addWidget(self.in_p1)
+        inp_l.addWidget(QLabel("Сила Архимеда (Fa):"))
+        inp_l.addWidget(self.in_fa)
+        # inp_l.addWidget(QLabel("Объем тела (V):"))
+        # inp_l.addWidget(self.in_v)
+        
+        inp_g.setLayout(inp_l)
+        right_panel.addWidget(inp_g)
 
-        # текущие показания
-        self.lbl_state = QLabel("Состояние: объект на столе")
-        self.lbl_readings = QLabel("F_air = — Н\nF_water = — Н\nV (мл) = —")
-        right_col.addWidget(self.lbl_state)
-        right_col.addWidget(self.lbl_readings)
-
-        # поля ввода ученика
-        right_col.addSpacing(6)
-        right_col.addWidget(QLabel("<b>Ввод результатов</b>"))
-        self.input_Fair = QLineEdit(); self.input_Fair.setPlaceholderText("Введите F_air, Н")
-        self.input_Fwater = QLineEdit(); self.input_Fwater.setPlaceholderText("Введите F_water, Н")
-        self.input_FA = QLineEdit(); self.input_FA.setPlaceholderText("Введите F_A = F_air - F_water, Н")
-        self.input_V = QLineEdit(); self.input_V.setPlaceholderText("Введите объём тела V, мл")
-        right_col.addWidget(self.input_Fair)
-        right_col.addWidget(self.input_Fwater)
-        right_col.addWidget(self.input_FA)
-        right_col.addWidget(self.input_V)
-
-        # кнопки управления экспериментом
-        btn_attach = QPushButton("Подвесить объект")
-        btn_attach.clicked.connect(self.toggle_attach)
-        btn_immerse = QPushButton("Погрузить / Вынуть")
-        btn_immerse.clicked.connect(self.toggle_submerge)
-        btn_measure_air = QPushButton("Измерить в воздухе")
-        btn_measure_air.clicked.connect(self.measure_air)
-        btn_measure_water = QPushButton("Измерить в воде")
-        btn_measure_water.clicked.connect(self.measure_water)
+        # 3. Кнопки
         btn_check = QPushButton("Проверить")
-        btn_check.clicked.connect(self.check_answers)
-        btn_show = QPushButton("Показать правильные значения")
-        btn_show.clicked.connect(self.show_answers)
-        btn_random = QPushButton("Случайный эксперимент")
-        btn_random.clicked.connect(self.random_experiment)
-        btn_reset = QPushButton("Сброс")
-        btn_reset.clicked.connect(self.reset_experiment)
+        btn_check.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        btn_check.clicked.connect(self.check_answer)
+        
+        btn_new = QPushButton("Новый эксперимент")
+        btn_new.clicked.connect(self.new_experiment)
+        
+        right_panel.addWidget(btn_check)
+        right_panel.addWidget(btn_new)
 
-        right_col.addWidget(btn_attach)
-        right_col.addWidget(btn_immerse)
-        right_col.addWidget(btn_measure_air)
-        right_col.addWidget(btn_measure_water)
-        right_col.addWidget(btn_check)
-        right_col.addWidget(btn_show)
-        right_col.addWidget(btn_random)
-        right_col.addWidget(btn_reset)
+        # 4. Журнал
+        res_g = QGroupBox("Журнал")
+        res_l = QVBoxLayout()
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        res_l.addWidget(self.log)
+        res_g.setLayout(res_l)
+        right_panel.addWidget(res_g)
 
-        right_col.addStretch(1)
+    def new_experiment(self):
+        self.true_mass_g = random.randint(100, 300) 
+        density = random.uniform(2.5, 8.0) 
+        self.true_vol_ml = int(self.true_mass_g / density)
+        
+        mass_kg = self.true_mass_g / 1000.0
+        vol_m3 = self.true_vol_ml * 1e-6
+        self.experiment.set_experiment(mass_kg, vol_m3)
+        
+        self.slider.setValue(0)
+        self.in_p0.clear()
+        self.in_p1.clear()
+        self.in_fa.clear()
+        # self.in_v.clear()
+        self.log.append("--- Новое задание ---")
 
-        # таймер обновления UI
-        self.ui_timer = QTimer(self)
-        self.ui_timer.timeout.connect(self._update_ui)
-        self.ui_timer.start(200)
-
-        # начальные показания
-        self._update_dynamometer(0.0)
-
-    # ---------------------------
-    # Генерация и состояние эксперимента
-    # ---------------------------
-    def _generate_experiment(self):
-        # общий объём мензурки 200..800 мл
-        self.V_total = random.randint(200, 800)
-        self.N = random.choice([10, 20, 50])
-        # объём тела (мл) — 5..(V_total/4)
-        self.V_body = random.randint(5, max(5, int(self.V_total * 0.2)))
-        # начальный уровень жидкости V_liquid так, чтобы вместился объект
-        self.V_liquid = random.randint(30, max(40, self.V_total - self.V_body - 10))
-        # масса тела (г) — 10..500
-        self.mass_body_g = random.randint(10, 500)
-        # истинные силы:
-        self.F_air_true = (self.mass_body_g / 1000.0) * G
-        self.F_A_true = RHO_WATER * G * self.V_body / 1000.0
-        self.F_water_true = max(0.0, self.F_air_true - self.F_A_true)
-
-    # ---------------------------
-    # UI и логика измерений
-    # ---------------------------
-    def toggle_attach(self):
-        self.object_attached = not self.object_attached
-        if not self.object_attached:
-            self._update_dynamometer(0.0)
-        else:
-            if not self.object_submerged:
-                self._update_dynamometer(self.F_air_true)
-            else:
-                self._update_dynamometer(self.F_water_true)
-        self._update_ui()
-
-    def toggle_submerge(self):
-        if not self.object_attached:
-            QMessageBox.information(self, "Инфо", "Сначала подвесьте объект на динамометр.")
-            return
-        self.object_submerged = not self.object_submerged
-        if self.object_submerged:
-            self.menzurka.set_liquid_volume(self.V_liquid + self.V_body)
-            self.menzurka.set_body(self.V_body, submerged=True)
-            self._update_dynamometer(self.F_water_true)
-        else:
-            self.menzurka.set_liquid_volume(self.V_liquid)
-            self.menzurka.set_body(self.V_body, submerged=False)
-            self._update_dynamometer(self.F_air_true)
-        self._update_ui()
-
-    def measure_air(self):
-        if not self.object_attached:
-            QMessageBox.information(self, "Инфо", "Подвесьте объект и затем нажмите «Измерить в воздухе».")
-            return
-        self._update_dynamometer(self.F_air_true)
-        QMessageBox.information(self, "Измерение", f"Измерено F_air = {self.F_air_true:.3f} Н")
-        self._update_ui()
-
-    def measure_water(self):
-        if not self.object_attached:
-            QMessageBox.information(self, "Инфо", "Подвесьте объект и погрузите его в воду.")
-            return
-        if not self.object_submerged:
-            QMessageBox.information(self, "Инфо", "Сначала погрузите объект в воду (кнопка Погрузить / Вынуть).")
-            return
-        self._update_dynamometer(self.F_water_true)
-        QMessageBox.information(self, "Измерение", f"Измерено F_water = {self.F_water_true:.3f} Н")
-        self._update_ui()
-
-    def _update_dynamometer(self, F):
-        self.dynam.set_force(F)
-
-    def _update_ui(self):
-        state_text = "подвешен" if self.object_attached else "на столе"
-        sub_text = "погружён" if self.object_submerged else "не погружён"
-        self.lbl_state.setText(f"Состояние: объект {state_text}, {sub_text}")
-        if self.object_attached and not self.object_submerged:
-            self.dynam.set_force(self.F_air_true)
-            self.lbl_readings.setText(f"F_air = {self.F_air_true:.3f} Н\nF_water = — Н\nV (мл) = —")
-        elif self.object_attached and self.object_submerged:
-            self.dynam.set_force(self.F_water_true)
-            self.lbl_readings.setText(f"F_air = {self.F_air_true:.3f} Н\nF_water = {self.F_water_true:.3f} Н\nV (мл) = {self.V_body}")
-        else:
-            self.dynam.set_force(0.0)
-            self.lbl_readings.setText("F_air = — Н\nF_water = — Н\nV (мл) = —")
-
-    # ---------------------------
-    # Проверка и вспомогательные действия
-    # ---------------------------
-    def check_answers(self):
+    def check_answer(self):
         try:
-            user_Fair = float(self.input_Fair.text())
-            user_Fwater = float(self.input_Fwater.text())
-            user_FA = float(self.input_FA.text())
-            user_V = float(self.input_V.text())
-        except Exception:
-            QMessageBox.warning(self, "Ошибка", "Введите числовые значения в поля F_air, F_water, F_A и V.")
+            u_p0 = float(self.in_p0.text())
+            u_p1 = float(self.in_p1.text())
+            u_fa = float(self.in_fa.text())
+            # u_v  = float(self.in_v.text())
+        except:
+            QMessageBox.warning(self, "Ошибка", "Введите числа!")
             return
 
-        true_Fair = self.F_air_true
-        true_Fwater = self.F_water_true
-        true_FA = self.F_A_true
-        true_V = float(self.V_body)
-
-        tol_F = max(0.01 * max(true_Fair, true_Fwater, 1.0), 0.01)
-        tol_V = max(0.5, 0.02 * true_V)
-
-        ok_Fair = abs(user_Fair - true_Fair) <= tol_F
-        ok_Fwater = abs(user_Fwater - true_Fwater) <= tol_F
-        ok_FA = abs(user_FA - true_FA) <= max(0.02 * true_FA, 0.01)
-        ok_V = abs(user_V - true_V) <= tol_V
-
-        lines = []
-        if ok_Fair:
-            lines.append("✅ F_air рассчитано верно.")
+        g = 9.81
+        true_p0 = (self.true_mass_g / 1000.0) * g
+        true_fa = 1000.0 * g * (self.true_vol_ml * 1e-6)
+        true_p1 = true_p0 - true_fa
+        
+        is_p0 = abs(u_p0 - true_p0) < 0.1
+        is_p1 = abs(u_p1 - true_p1) < 0.1
+        is_fa = abs(u_fa - true_fa) < 0.1
+        # is_v  = abs(u_v - self.true_vol_ml) < 5.0
+        
+        if is_p0 and is_p1 and is_fa:
+            self.log.append(f"<span style='color:green'>✅ <b>ВЕРНО!</b> (Fa={true_fa:.2f}H)</span>")
+            # if is_v:
+            #     self.log.append(f"   Объем верен: {self.true_vol_ml} мл")
+            # else:
+            #     self.log.append(f"   Объем неверен. Используйте V = Fa / (ρ*g).")
         else:
-            lines.append(f"❌ F_air неверно. Правильное: {true_Fair:.3f} Н (допуск ±{tol_F:.3f} Н).")
-        if ok_Fwater:
-            lines.append("✅ F_water рассчитано верно.")
-        else:
-            lines.append(f"❌ F_water неверно. Правильное: {true_Fwater:.3f} Н (допуск ±{tol_F:.3f} Н).")
-        if ok_FA:
-            lines.append("✅ F_A рассчитана верно.")
-        else:
-            lines.append(f"❌ F_A неверно. Правильное: {true_FA:.3f} Н (допуск ±{max(0.02*true_FA,0.01):.3f} Н).")
-        if ok_V:
-            lines.append("✅ V рассчитан верно.")
-        else:
-            lines.append(f"❌ V неверно. Правильный объём: {true_V:.1f} мл (допуск ±{tol_V:.2f} мл).")
+            self.log.append(f"<span style='color:red'>❌ <b>ОШИБКА.</b> Проверьте расчеты.</span>")
+            self.log.append(f"   P0 ≈ {true_p0:.2f}, P1 ≈ {true_p1:.2f}")
 
-        # показываем результат в отдельном окне (или в метке)
-        QMessageBox.information(self, "Результат проверки", "\n".join(lines))
-
-    def show_answers(self):
-        self.input_Fair.setText(f"{self.F_air_true:.3f}")
-        self.input_Fwater.setText(f"{self.F_water_true:.3f}")
-        self.input_FA.setText(f"{self.F_A_true:.3f}")
-        self.input_V.setText(f"{self.V_body:.2f}")
-        QMessageBox.information(self, "Показаны значения", "Правильные значения заполнены в полях.")
-
-    def reset_experiment(self):
-        self._generate_experiment()
-        self.menzurka.set_liquid_volume(self.V_liquid)
-        self.menzurka.set_body(self.V_body, submerged=False)
-        self.object_attached = False
-        self.object_submerged = False
-        self._update_dynamometer(0.0)
-        self.input_Fair.clear(); self.input_Fwater.clear(); self.input_FA.clear(); self.input_V.clear()
-        self.lbl_readings.setText("F_air = — Н\nF_water = — Н\nV (мл) = —")
-        self.lbl_state.setText("Состояние: объект на столе")
-
-    def random_experiment(self):
-        self._generate_experiment()
-        self.menzurka.set_liquid_volume(self.V_liquid)
-        self.menzurka.set_body(self.V_body, submerged=False)
-        self.object_attached = False
-        self.object_submerged = False
-        self._update_dynamometer(0.0)
-        self.input_Fair.clear(); self.input_Fwater.clear(); self.input_FA.clear(); self.input_V.clear()
-        QMessageBox.information(self, "Новый эксперимент", f"Сгенерирован новый объект: V = {self.V_body} мл, m = {self.mass_body_g} г")
-
-# ---------------------------
-# Запуск приложения
-# ---------------------------
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     win = LabArchimedesApp()
     win.show()
     sys.exit(app.exec())
