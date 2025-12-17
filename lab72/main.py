@@ -223,7 +223,7 @@ class BallsRowWidget(QFrame):
 class Lab02App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная работа №2: Катарный метод")
+        self.setWindowTitle("Лабораторная работа №2: Измерение размеров мелких объектов")
         self.resize(1100, 650)
         
         self.ruler_length = 250
@@ -235,7 +235,7 @@ class Lab02App(QWidget):
         main_layout = QHBoxLayout(self)
 
         # --- СЛЕВА: Визуализация ---
-        left_group = QGroupBox("Визуальный стенд")
+        left_group = QGroupBox("Эксперимент")
         left_layout = QVBoxLayout()
         
         self.ruler = RulerWidget(length_mm=self.ruler_length, px_per_mm=self.px_per_mm)

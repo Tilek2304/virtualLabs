@@ -261,7 +261,7 @@ class ScalesWidget(QFrame):
 class Lab03App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная работа №3: Рычажные весы")
+        self.setWindowTitle("Лабораторная работа №3: Плечевые весы, определение массы предмета")
         self.resize(1100, 600)
         self.setup_ui()
 

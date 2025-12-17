@@ -195,7 +195,7 @@ class MenzurkaWidget(QFrame):
 class Lab04App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораториялык иш №4: Көлөмдү аныктоо")
+        self.setWindowTitle("Лабораториялык иш №4: Нерсени суюктукка чөмүлтүү менен анын көлөмүн аныктоо.")
         self.resize(1000, 600)
         self.setup_ui()
 

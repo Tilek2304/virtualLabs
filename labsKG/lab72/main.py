@@ -225,7 +225,7 @@ class BallsRowWidget(QFrame):
 class Lab02App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораториялык иш №2: Катар ыкмасы")
+        self.setWindowTitle("Лабораториялык иш №2: Майда нерселердин өлчөмдөрүн ченөө")
         self.resize(1100, 650)
         
         self.ruler_length = 250
@@ -237,7 +237,7 @@ class Lab02App(QWidget):
         main_layout = QHBoxLayout(self)
 
         # --- СОЛ ЖАК: Визуализация (Group Box ичинде) ---
-        left_group = QGroupBox("Визуалдык стенд")
+        left_group = QGroupBox("Эксперимент")
         left_layout = QVBoxLayout()
         
         # Сызгыч жана Шариктер

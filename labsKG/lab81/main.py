@@ -163,7 +163,7 @@ class LabMixApp(QWidget):
         main = QHBoxLayout(self)
 
         # --- СОЛ ЖАК: Калориметр ---
-        left_group = QGroupBox("Тажрыйба стенди")
+        left_group = QGroupBox("Эксперимент")
         left_layout = QVBoxLayout()
         self.calorimeter = CalorimeterWidget()
         left_layout.addWidget(self.calorimeter)

@@ -164,7 +164,7 @@ class LeverWidget(QFrame):
 class LabLeverApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("№9 Лабораториялык иш — Рычагдын тең салмактуулугу")
+        self.setWindowTitle("Лабораториялык иш №9: Рычагтын тең салмактуу абалда болуу шартын айкындоо")
         self.setMinimumSize(1000, 600)
 
         main_layout = QHBoxLayout(self)
@@ -178,7 +178,7 @@ class LabLeverApp(QWidget):
         left_layout.addWidget(self.lever)
 
         # Панель управления
-        lbl_title = QLabel("<b>Рычагдын тең салмактуулугу</b>")
+        lbl_title = QLabel("<b>Рычагтын тең салмактуу абалда болуу шартын айкындоо</b>")
         lbl_title.setFont(QFont("Sans", 14))
         right_layout.addWidget(lbl_title)
 

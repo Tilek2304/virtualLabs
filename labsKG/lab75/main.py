@@ -302,7 +302,7 @@ class ScalesWidget(QFrame):
 class LabDensityApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораториялык иш №5: Катуу нерсенин тыгыздыгы")
+        self.setWindowTitle("Лабораториялык иш №5: Катту нерселердин тыгыздыгын аныктоо")
         self.resize(1100, 700)
         
         # Материалдар (тыгыздыгы г/мл)

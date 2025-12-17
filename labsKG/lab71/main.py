@@ -159,7 +159,7 @@ class MenzurkaWidget(QFrame):
 class Lab01App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораториялык иш №1: Бөлүктүн баасын аныктоо")
+        self.setWindowTitle("Лабораториялык иш №1: Мензурканын бөлүгүнүн баасын аныктоо")
         self.resize(900, 600)
         self.setup_ui()
         self.generate_task() # Биринчи тапшырманы түзүү
@@ -171,7 +171,7 @@ class Lab01App(QWidget):
         # --- СОЛ ЖАК: Визуализация ---
         self.menzurka = MenzurkaWidget(100, 50, 10) 
         
-        left_container = QGroupBox("Тажрыйбаны визуалдаштыруу")
+        left_container = QGroupBox("Эксперимент")
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.menzurka)
         left_container.setLayout(left_layout)
@@ -186,7 +186,7 @@ class Lab01App(QWidget):
         task_group = QGroupBox("Тапшырманын параметрлери")
         task_layout = QVBoxLayout()
         
-        self.lbl_info = QLabel("Аспаптын бөлүгүнүн баасын жана суюктуктун учурдагы көлөмүн аныктаңыз.")
+        self.lbl_info = QLabel("Мензурканын бөлүгүнүн баасын жана суюктуктун учурдагы көлөмүн аныктаңыз.")
         self.lbl_info.setWordWrap(True)
         self.lbl_info.setStyleSheet("color: #555; font-style: italic;")
         

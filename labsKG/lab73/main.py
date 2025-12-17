@@ -281,7 +281,7 @@ class ScalesWidget(QFrame):
 class Lab03App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораториялык иш №3: Рычагдуу тараза")
+        self.setWindowTitle("Лабораториялык иш №3: Ийин таразасы, нерсенин массасын аныктоо")
         self.resize(1100, 600)
         self.setup_ui()
 

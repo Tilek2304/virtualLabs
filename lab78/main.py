@@ -157,7 +157,7 @@ class LeverWidget(QFrame):
 class LabLeverApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная №9 — Равновесие рычага")
+        self.setWindowTitle("Лабораторная №9 — Условие равновесия рычага")
         self.setMinimumSize(1000, 600)
 
         main_layout = QHBoxLayout(self)

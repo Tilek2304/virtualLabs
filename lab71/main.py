@@ -162,7 +162,7 @@ class MenzurkaWidget(QFrame):
 class Lab01App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная №1: Определение цены деления")
+        self.setWindowTitle("Лабораторная №1: Определение цены деления мензурки")
         self.resize(900, 600)
         self.setup_ui()
         self.generate_task() # Сразу создаем первое задание
@@ -190,7 +190,7 @@ class Lab01App(QWidget):
         task_group = QGroupBox("Параметры задания")
         task_layout = QVBoxLayout()
         
-        self.lbl_info = QLabel("Определите цену деления прибора и текущий объем жидкости.")
+        self.lbl_info = QLabel("Определите цену деления шкалы мензурки и текущий объем жидкости.")
         self.lbl_info.setWordWrap(True)
         self.lbl_info.setStyleSheet("color: #555; font-style: italic;")
         

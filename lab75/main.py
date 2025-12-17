@@ -292,7 +292,7 @@ class ScalesWidget(QFrame):
 class LabDensityApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Лабораторная работа №5: Плотность тела")
+        self.setWindowTitle("Лабораторная работа № 5: Определение плотности твердых тел.")
         self.resize(1100, 700)
         
         self.materials = {
